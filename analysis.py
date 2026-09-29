@@ -654,6 +654,19 @@ def _port_cumulative_rho(
     return out
 
 
+def _serialization_link_capacity(a: str, b: str, scenario: str) -> float | None:
+    """Capacity [bps] of a wire edge a->b (device link or trunk cable), else None."""
+    upgraded = scenario == 'upgraded'
+    if a.startswith('L1_') and b.startswith('L2_'):
+        return CAPACITY_DEFAULT
+    if a.startswith('L4_Trunk_') and b.startswith('L4_Trunk_'):
+        return CAPACITY_TRUNK_UPGRADED if upgraded else CAPACITY_TRUNK
+    if a.startswith('L5_') and b.startswith('L1_'):
+        return (CAPACITY_TRUNK_UPGRADED if upgraded and a == 'L5_OutPort_BBP'
+                else CAPACITY_DEFAULT)
+    return None
+
+
 def compute_e2e_metrics(
     labels: list[str],
     W: np.ndarray,
@@ -695,11 +708,18 @@ def compute_e2e_metrics(
         prio = get_vlan_priority(vlan)
         for (src, dst), bw in nonzero[nonzero > 0].items():
             path = flow_path(src, dst, vlan, sw_map)
+            frame_bits = get_frame_specs(vlan, src=src)['size'] * 8
             d_s, keep = 0.0, 1.0
             for a, b in zip(path, path[1:]):
                 i, j = idx[a], idx[b]
                 rho, cap = port_rho.get((b, prio), (0.0, 1.0))
-                if a.startswith('L4_Priority_') and rho >= 1.0:
+                link_cap = _serialization_link_capacity(a, b, scenario)
+                if link_cap is not None:
+                    # Wire edge: serialize THIS flow's frame (the edge weight in W
+                    # uses the port's rate-weighted mean frame for graph metrics).
+                    d_s  += frame_bits / link_cap
+                    keep *= 1.0 - PL[i, j]
+                elif a.startswith('L4_Priority_') and rho >= 1.0:
                     wait, _, loss = fluid_overload(rho, cap, window_s)
                     d_s  += wait
                     keep *= 1.0 - loss

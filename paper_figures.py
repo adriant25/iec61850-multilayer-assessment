@@ -46,7 +46,9 @@ N_STAR = CAPACITY_DEFAULT / SV_BPS_PER_BAY
 
 report = pd.read_excel(os.path.join('results', 'Global_Report.xlsx'), sheet_name=None)
 raw = report['Raw_Data']
-per_n = (raw.groupby(['N_Bays', 'Scenario'])
+# Steady-state snapshot (t = 0): comparable with the DES mean over the run,
+# which is dominated by steady-state traffic.
+per_n = (raw[raw.Snapshot_Time_ms == 0].groupby(['N_Bays', 'Scenario'])
             [['Fiedler_Lambda2', 'Global_Efficiency', 'Load_Gini',
               'E2E_Avg_SV_us', 'E2E_PLR_Avg_SV']]
             .mean().reset_index())
@@ -84,7 +86,9 @@ for ax, (col, ylab, logy, title) in zip(axes, panels):
     ax.grid(True, which='both')
 axes[0].text(5.6, axes[0].get_ylim()[1] * 0.5, 'trunk\nadded', fontsize=6.5, color='0.35')
 axes[2].text(N_STAR + 0.1, 0.80, r'$N^*$', fontsize=7, color='0.35')
-axes[1].legend(loc='lower left', frameon=True)
+handles, labels = axes[0].get_legend_handles_labels()
+fig.legend(handles, labels, loc='upper center', ncol=3, frameon=False,
+           bbox_to_anchor=(0.5, 1.08))
 fig.savefig(os.path.join(OUT, 'fig_structural.png'))
 plt.close(fig)
 
@@ -136,11 +140,11 @@ def short(lbl: str) -> str:
                .replace('L3_VLAN_', 'VLAN '))
 
 
-steady = raw[(raw.N_Bays == N_FOCUS) & (raw.Scenario == 'base') & (raw.Snapshot_Time_ms == 0)]
-bc = steady.set_index('Node_Label').Centrality.sort_values(ascending=False).head(8)
-
 vul = report['Vulnerability'].drop_duplicates(['N_Bays', 'Scenario', 'Node_Label'])
 vul = vul[vul.N_Bays == N_FOCUS]
+# Steady-state BC is stored with the vulnerability records (top-20 BC nodes)
+bc = (vul[vul.Scenario == 'base'].set_index('Node_Label').Betweenness
+      .sort_values(ascending=False).head(8))
 top_v = (vul[vul.Scenario == 'base'].sort_values('Vulnerability_Index', ascending=False)
          .Node_Label.head(6).tolist())
 
@@ -172,25 +176,24 @@ from analysis import fluid_overload  # noqa: E402
 from config import PORT_BUFFER_BYTES  # noqa: E402
 
 SIM = r"C:\Users\adria\OneDrive - Universidad de los andes\Uniandes\2025-1\Simulación"
-TRACES = {
-    9:  os.path.join(SIM, r'CASO9BAHIAS\100\Results\Detailed_Plots\Flow_Plots'
-                          r'\SV_MU1B2_5_BBP\delay_data_SV_MU1B2_5_BBP.xlsx'),
-    10: os.path.join(SIM, r'CASO10BAHIAS\Results100\Detailed_Plots\Detailed_Plots\Flow_Plots'
-                          r'\SV_MU1B2_5_BBP\delay_data_SV_MU1B2_5_BBP.xlsx'),
-}
+# Per-packet traces were exported only for the 9-bay 100 Mbps run (the folder
+# CASO10BAHIAS/Results100/Detailed_Plots holds 9-bay traces and is not used).
+# The SV path is not affected by the N=9 input-table errors (GOOSE only).
+TRACE_N9 = os.path.join(SIM, r'CASO9BAHIAS\100\Results\Detailed_Plots\Flow_Plots'
+                             r'\SV_MU1B2_5_BBP\delay_data_SV_MU1B2_5_BBP.xlsx')
 T_EVENT = 3.0
-fig, ax = plt.subplots(figsize=(3.5, 2.4))
+fig, ax = plt.subplots(figsize=(3.5, 2.3))
+tr = pd.read_excel(TRACE_N9)
+idx = pd.to_numeric(tr['Packet_Index'].astype(str).str.extract(r'(\d+)')[0])
+t = idx / TRAFFIC_SPECS['SV']['freq']
+dly = pd.to_numeric(tr['Total_Delay_ms'], errors='coerce')
+ax.plot(t[::20], dly[::20], color='#0072B2', lw=1.6, alpha=0.6, label='DES, $N=9$')
+tt = np.linspace(0, 7, 200)
+cap_ms = 8 * PORT_BUFFER_BYTES / CAPACITY_DEFAULT * 1e3
 for n, color in ((9, '#0072B2'), (10, '#D55E00')):
-    tr = pd.read_excel(TRACES[n])
-    idx = pd.to_numeric(tr['Packet_Index'].astype(str).str.extract(r'(\d+)')[0])
-    t = idx / TRAFFIC_SPECS['SV']['freq']
-    dly = pd.to_numeric(tr['Total_Delay_ms'], errors='coerce')
-    ax.plot(t[::20], dly[::20], color=color, lw=0.9, label=f'DES, $N={n}$')
     rho = n * SV_BPS_PER_BAY / CAPACITY_DEFAULT
-    tt = np.linspace(0, 7, 200)
-    cap_ms = 8 * PORT_BUFFER_BYTES / CAPACITY_DEFAULT * 1e3
     ax.plot(tt, np.minimum((rho - 1) * tt * 1e3, cap_ms), color=color, lw=1.0, ls='--',
-            label=f'Fluid model, $\\rho={rho:.3f}$')
+            label=f'Fluid model, $N={n}$ ($\\rho={rho:.3f}$)')
 ax.axvline(T_EVENT, color='0.3', lw=0.8, ls=':')
 ax.text(T_EVENT + 0.08, 20, '50BF event', fontsize=6.5, color='0.3')
 ax.axhline(T_MAX * 1e3, color='0.5', lw=0.6)

@@ -36,7 +36,11 @@ DES_RUNS = {
     **{(n, 'base'): os.path.join(_case(n), 'Results', 'KPIs_PB.xlsx') for n in range(2, 9)},
     (1, 'base'):      os.path.join(_case(1), 'Results_rerun', 'KPIs_PB.xlsx'),
     (9, 'base'):      os.path.join(_case(9), '100_fix', 'Results', 'KPIs_PB.xlsx'),
-    (9, 'upgraded'):  os.path.join(_case(9), '1000_fix', 'Results', 'KPIs_PB.xlsx'),
+    # Falls back to the original '1000' run until the corrected re-run exists
+    # (the input-table errors of N=9 affect GOOSE statistics, not SV).
+    (9, 'upgraded'):  next(p for p in (
+        os.path.join(_case(9), '1000_fix', 'Results', 'KPIs_PB.xlsx'),
+        os.path.join(_case(9), '1000', 'Results', 'KPIs_PB.xlsx')) if os.path.exists(p)),
     (10, 'base'):     os.path.join(_case(10), 'Results100', 'KPIs_PB.xlsx'),
     (10, 'upgraded'): os.path.join(_case(10), 'Results1000', 'KPIs_PB.xlsx'),
 }

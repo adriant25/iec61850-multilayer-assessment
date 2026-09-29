@@ -1,0 +1,20 @@
+# Generated outputs — regenerate by running: python simulation.py
+results/
+
+# Legacy output files from the original Spanish codebase (root-level)
+Detalle_Dinamico_*.xlsx
+Metricas_Por_Escenario.xlsx
+Reporte_Global_Dinamico.xlsx
+Resultados_*.png
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/

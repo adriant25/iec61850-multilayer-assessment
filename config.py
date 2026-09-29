@@ -1,0 +1,107 @@
+# -*- coding: utf-8 -*-
+"""
+config.py — Global constants and protocol specifications.
+
+IEC 61850 Digital Substation — Complex Network Scalability Simulation
+----------------------------------------------------------------------
+Defines all physical, timing, and protocol parameters used across the
+simulation. Centralising constants here makes it easy to adapt the model
+to different substation configurations without touching simulation logic.
+"""
+
+import numpy as np
+
+# =============================================================================
+# TIMING AND CAPACITY PARAMETERS
+# =============================================================================
+
+# IEC 61850 hard deadline for protection and SV traffic (Class P6 / P4)
+T_MAX: float = 0.003            # 3 ms in seconds
+
+# Link capacities (bits per second)
+CAPACITY_DEFAULT: float = 100e6          # 100 Mbps — standard bay device links
+CAPACITY_TRUNK: float = 100e6            # 100 Mbps — inter-switch trunk, base scenario
+CAPACITY_TRUNK_UPGRADED: float = 1000e6  # 1 Gbps  — inter-switch trunk, upgraded scenario
+CAPACITY_BBP: float = 1000e6             # 1 Gbps  — BBP uplink (aggregates SV from every bay)
+
+# Switch fabric (backplane) capacity used for HOL-blocking model
+FABRIC_CAPACITY: float = 68000.0  # Mbps
+
+# Fixed per-hop processing delay inside a managed switch
+T_PROC_SWITCH: float = 4e-6  # 4 µs in seconds
+
+# M/M/1/K buffer capacity expressed in packets.
+# Buffer size = 4 MiB; packet size = 149 B (IEC 61850 SV frame).
+K_BUFFER: int = int(np.floor(4 * 1024 * 1024 / 149))  # = 28,149 packets
+
+# Scaling factor in the M/M/1 queuing delay formula (empirical constant)
+FACTOR_4: int = 4
+
+# =============================================================================
+# TRAFFIC SPECIFICATIONS PER PROTOCOL
+# =============================================================================
+
+# Each entry holds the steady-state transmission frequency (Hz) and
+# Ethernet frame size (bytes, including header) of each traffic class.
+TRAFFIC_SPECS: dict = {
+    "PTP":    {"freq": 3,    "size": 80},   # IEEE 1588 Sync/Follow-Up
+    "SV":     {"freq": 4800, "size": 149},  # IEC 61869-9 Sampled Values (80 smp/cycle @ 60 Hz)
+    "GOOSE":  {"freq": 1,    "size": 187},  # IEC 61850-8-1 keep-alive (burst modelled separately)
+    "MON":    {"freq": 1,    "size": 171},  # Generic monitoring / MMS
+    "SMC":    {"freq": 1,    "size": 211},  # Station Monitor Controller request
+    "MU_RES": {"freq": 1,    "size": 340},  # Merging Unit response
+}
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def get_vlan_priority(vlan_name: str) -> int:
+    """
+    Map a VLAN identifier to its IEEE 802.1Q Priority Code Point (PCP).
+
+    Priority mapping follows IEC 61850 traffic class recommendations:
+      - P7: PTP time-sync (highest)
+      - P6: Protection / GOOSE critical (VLANs 3, 4, 5, 8–12)
+      - P5: Control / status exchange  (VLANs 6, 7, 11, 13)
+      - P4: Sampled Values / low-prio  (VLANs 1, 2, 14–17)  [default]
+
+    Args:
+        vlan_name: VLAN label string, e.g. 'L3_VLAN_B1_V3_SW1'.
+
+    Returns:
+        Integer priority in range [4, 7].
+    """
+    if "PTP" in vlan_name:
+        return 7  # Highest — time synchronisation must not be delayed
+
+    if "V5" in vlan_name:
+        return 6  # BBP global protection broadcast
+
+    # Extract numeric VLAN ID from the trailing _V<id> suffix
+    try:
+        vid = int(vlan_name.split('_V')[-1])
+        if vid in [1, 2, 14, 15, 16, 17]:
+            return 4  # Sampled Values and low-priority monitoring
+        if vid in [6, 7, 11, 13]:
+            return 5  # Control / status (SMC ↔ MU)
+        if vid in [3, 4, 8, 9, 10, 12]:
+            return 6  # Protection-critical (GOOSE, differential, etc.)
+    except (ValueError, IndexError):
+        pass
+
+    return 4  # Default: treat unknown VLANs as low-priority
+
+
+def get_mbps(size_bytes: int, freq_hz: float) -> float:
+    """
+    Convert packet size and transmission frequency to bandwidth in Mbps.
+
+    Args:
+        size_bytes: Frame size in bytes (Ethernet payload + headers).
+        freq_hz:    Transmission frequency in frames per second.
+
+    Returns:
+        Bandwidth in Megabits per second (Mbps).
+    """
+    return (size_bytes * 8 * freq_hz) / 1e6

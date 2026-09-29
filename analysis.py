@@ -44,6 +44,25 @@ from config import (
 # 1. PHYSICAL WEIGHT COMPUTATION
 # =============================================================================
 
+# Scenarios:  'base'     -- every link at 100 Mbps
+#             'upgraded' -- inter-switch trunk and BBP link at 1 Gbps
+#             'bbp_only' -- only the BBP link at 1 Gbps
+SCENARIOS = ('base', 'upgraded', 'bbp_only')
+
+
+def trunk_capacity_for(scenario: str) -> float:
+    """Inter-switch trunk capacity [bps] in a scenario."""
+    return CAPACITY_TRUNK_UPGRADED if scenario == 'upgraded' else CAPACITY_TRUNK
+
+
+def port_capacity(p_label: str, scenario: str) -> float:
+    """Capacity [bps] of the link behind an egress/trunk port node."""
+    if 'Trunk' in p_label:
+        return trunk_capacity_for(scenario)
+    if p_label == 'L5_OutPort_BBP' and scenario in ('upgraded', 'bbp_only'):
+        return CAPACITY_TRUNK_UPGRADED
+    return CAPACITY_DEFAULT
+
 def compute_weights(
     labels: list[str],
     A: np.ndarray,
@@ -83,7 +102,7 @@ def compute_weights(
         u_p: Dict {'SW1': {prio: util}, 'SW2': {prio: util}} -- fabric utilisation
              per switch per priority (used for HOL-blocking and reporting).
     """
-    trunk_capacity = CAPACITY_TRUNK_UPGRADED if scenario == 'upgraded' else CAPACITY_TRUNK
+    trunk_capacity = trunk_capacity_for(scenario)
 
     n_nodes = len(labels)
     W  = np.zeros((n_nodes, n_nodes), dtype=float)
@@ -238,16 +257,8 @@ def compute_weights(
             continue
         idx_dst = labels.index(p_label)
 
-        # Select link capacity based on port type and scenario.
-        # Base scenario: all links at 100 Mbps -- BBP saturates at N>=9 (expected violation).
-        # Upgraded scenario: trunk links and the BBP uplink both raised to 1 Gbps,
-        # matching the paper's case study ("1 Gbps links for both trunks and BBP connection").
-        is_trunk = 'Trunk' in p_label
-        is_bbp   = p_label == 'L5_OutPort_BBP'
-        if (is_trunk or is_bbp) and scenario == 'upgraded':
-            cap = trunk_capacity     # Upgraded: 1 Gbps trunk or BBP link
-        else:
-            cap = CAPACITY_DEFAULT   # Base: 100 Mbps for all links
+        # Link capacity by port type and scenario (see SCENARIOS)
+        cap = port_capacity(p_label, scenario)
 
         # Process priorities from highest (7) to lowest (4) to model preemption
         for k in range(7, -1, -1):
@@ -368,8 +379,7 @@ def compute_weights(
         ssf_total = sum(stats[k]['ssf'] for k in range(8)) if stats else 0.0
         sf_total  = sum(stats[k]['sf']  for k in range(8)) if stats else 0.0
         s_avg_bits = (ssf_total / sf_total) * 8 if sf_total > 0 else 100 * 8
-        cap = (trunk_capacity if (scenario == 'upgraded' and d == 'BBP')
-               else CAPACITY_DEFAULT)
+        cap = port_capacity(p_label, scenario)
         try:
             W[labels.index(p_label),
               labels.index(f'L1_Equipment_{d}')] = (s_avg_bits / cap) / T_MAX
@@ -633,7 +643,6 @@ def _port_cumulative_rho(
     {(port_label, prio): (ρ_p, C_port)}, ρ_p = Σ_{k≥p} Λ_k / C_port.
     Same port and capacity rules as compute_weights().
     """
-    trunk_capacity = CAPACITY_TRUNK_UPGRADED if scenario == 'upgraded' else CAPACITY_TRUNK
     load: dict[str, dict[int, float]] = {}
     for vlan, df in D.items():
         prio = get_vlan_priority(vlan)
@@ -647,8 +656,7 @@ def _port_cumulative_rho(
                 load.setdefault(p_label, {k: 0.0 for k in range(8)})[prio] += bw * 1e6
     out = {}
     for p_label, by_prio in load.items():
-        upgraded = scenario == 'upgraded' and ('Trunk' in p_label or p_label == 'L5_OutPort_BBP')
-        cap = trunk_capacity if upgraded else CAPACITY_DEFAULT
+        cap = port_capacity(p_label, scenario)
         for p in range(8):
             out[(p_label, p)] = (sum(by_prio[k] for k in range(p, 8)) / cap, cap)
     return out
@@ -656,14 +664,11 @@ def _port_cumulative_rho(
 
 def _serialization_link_capacity(a: str, b: str, scenario: str) -> float | None:
     """Capacity [bps] of a wire edge a->b (device link or trunk cable), else None."""
-    upgraded = scenario == 'upgraded'
     if a.startswith('L1_') and b.startswith('L2_'):
         return CAPACITY_DEFAULT
-    if a.startswith('L4_Trunk_') and b.startswith('L4_Trunk_'):
-        return CAPACITY_TRUNK_UPGRADED if upgraded else CAPACITY_TRUNK
-    if a.startswith('L5_') and b.startswith('L1_'):
-        return (CAPACITY_TRUNK_UPGRADED if upgraded and a == 'L5_OutPort_BBP'
-                else CAPACITY_DEFAULT)
+    if (a.startswith('L4_Trunk_') and b.startswith('L4_Trunk_')) or \
+            (a.startswith('L5_') and b.startswith('L1_')):
+        return port_capacity(a, scenario)
     return None
 
 

@@ -63,7 +63,7 @@ def run_simulation(max_bays: int = 10, scenario: str = 'base') -> tuple[pd.DataF
 
     Args:
         max_bays: Maximum number of bays to simulate (default 10).
-        scenario: 'base' (100 Mbps trunk) or 'upgraded' (1 Gbps trunk).
+        scenario: 'base' (all 100 Mbps), 'upgraded' (trunk + BBP link 1 Gbps) or 'bbp_only' (BBP link 1 Gbps).
 
     Returns:
         df_main: Long-format DataFrame -- one row per (N, scenario, snapshot, node).
@@ -416,8 +416,8 @@ def plot_latency_scalability(df: pd.DataFrame) -> None:
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    colors  = {'base': '#1f77b4', 'upgraded': '#2ca02c'}
-    markers = {'base': 'o',       'upgraded': 's'}
+    colors  = {'base': '#1f77b4', 'upgraded': '#2ca02c', 'bbp_only': '#ff7f0e'}
+    markers = {'base': 'o',       'upgraded': 's', 'bbp_only': '^'}
 
     for scenario in avg_df['Scenario'].unique():
         sc = avg_df[avg_df['Scenario'] == scenario]
@@ -463,8 +463,8 @@ def plot_complex_metrics(df: pd.DataFrame) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     fig.suptitle('Complex Network Metrics vs. Number of Bays', fontsize=14, weight='bold')
 
-    colors  = {'base': '#1f77b4', 'upgraded': '#2ca02c'}
-    markers = {'base': 'o',       'upgraded': 's'}
+    colors  = {'base': '#1f77b4', 'upgraded': '#2ca02c', 'bbp_only': '#ff7f0e'}
+    markers = {'base': 'o',       'upgraded': 's', 'bbp_only': '^'}
 
     panels = [
         ('Fiedler_Lambda2',   r'Algebraic Connectivity ($\lambda_2$)',   r'$\lambda_2$ (weighted)'),
@@ -518,7 +518,7 @@ def plot_transient_behavior(df: pd.DataFrame, n_bay_focus: int = 10) -> None:
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(12, 7))
 
-    colors = {'base': '#1f77b4', 'upgraded': '#2ca02c'}
+    colors = {'base': '#1f77b4', 'upgraded': '#2ca02c', 'bbp_only': '#ff7f0e'}
     for scenario in df_focus['Scenario'].unique():
         sc = df_focus[df_focus['Scenario'] == scenario]
         ax.plot(sc['Snapshot_Time_ms'], sc['Latency_Max_P6'],
@@ -720,8 +720,10 @@ def plot_sv_performance(df: pd.DataFrame) -> None:
 
     scenario_style = {
         'base':     {'linestyle': '-',  'marker': 'o', 'label': 'Base (100 Mbps)'},
-        'upgraded': {'linestyle': '--', 'marker': 's', 'label': 'Upgraded (1 Gbps)'},
+        'upgraded': {'linestyle': '--', 'marker': 's', 'label': 'Trunk + BBP link 1 Gbps'},
+        'bbp_only': {'linestyle': '-.', 'marker': '^', 'label': 'BBP link only 1 Gbps'},
     }
+    scenario_color = {'base': '#1f77b4', 'upgraded': '#2ca02c', 'bbp_only': '#ff7f0e'}
 
     # 1. Left Panel: Average Delay
     ax = axes[0]
@@ -729,7 +731,7 @@ def plot_sv_performance(df: pd.DataFrame) -> None:
         sc = worst[worst['Scenario'] == scenario].sort_values('N_Bays')
         style = scenario_style.get(scenario, {'linestyle': '-', 'marker': '.', 'label': scenario})
         ax.plot(sc['N_Bays'], sc['E2E_Avg_SV_us'],
-                color='#1f77b4' if scenario == 'base' else '#2ca02c',
+                color=scenario_color.get(scenario, 'k'),
                 linewidth=2.0, alpha=0.9 if scenario == 'base' else 0.8,
                 zorder=5, **style)
     ax.axhline(T_MAX * 1e6, color='red', linestyle=':', linewidth=1.5,
@@ -748,7 +750,7 @@ def plot_sv_performance(df: pd.DataFrame) -> None:
         sc = worst[worst['Scenario'] == scenario].sort_values('N_Bays')
         style = scenario_style.get(scenario, {'linestyle': '-', 'marker': '.', 'label': scenario})
         ax.plot(sc['N_Bays'], sc['E2E_PLR_Avg_SV'],
-                color='#1f77b4' if scenario == 'base' else '#2ca02c',
+                color=scenario_color.get(scenario, 'k'),
                 linewidth=2.0, alpha=0.9 if scenario == 'base' else 0.8,
                 zorder=5, **style)
     ax.set_title('Average Packet Loss Rate (SV)', fontsize=12, weight='bold')
@@ -1185,7 +1187,7 @@ def plot_fault_evolution_snapshots(n_bays: int = 1, scenario: str = 'base') -> N
 
 if __name__ == '__main__':
 
-    scenarios_to_run = ['base', 'upgraded']
+    scenarios_to_run = ['base', 'upgraded', 'bbp_only']
     all_results = []
     all_vuln    = []
 

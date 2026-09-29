@@ -35,7 +35,7 @@ import networkx as nx
 
 from config import (
     T_MAX, CAPACITY_DEFAULT, CAPACITY_TRUNK, CAPACITY_TRUNK_UPGRADED,
-    FABRIC_CAPACITY, T_PROC_SWITCH, K_BUFFER,
+    FABRIC_CAPACITY, T_PROC_SWITCH, K_BUFFER, PORT_BUFFER_BYTES, OBS_WINDOW_S,
     SV_VLAN_IDS, GOOSE_VLAN_IDS,
     get_vlan_priority, get_vlan_id, get_frame_specs,
 )
@@ -599,12 +599,69 @@ def flow_path(src: str, dst: str, vlan: str, sw_map: dict[str, str]) -> list[str
     return path
 
 
+def fluid_overload(rho: float, cap_bps: float,
+                   window_s: float = OBS_WINDOW_S,
+                   buffer_bytes: float = PORT_BUFFER_BYTES) -> tuple[float, float, float]:
+    """
+    Deterministic fluid model of an output queue overloaded (ρ > 1) from t = 0.
+
+    The backlog grows at (ρ-1)·C, so the waiting time of a frame arriving at t
+    is (ρ-1)·t until the buffer B fills at t_fill = 8B / ((ρ-1)·C); afterwards
+    the wait is capped at 8B/C and a fraction (ρ-1)/ρ of arrivals is dropped.
+
+    Returns (mean wait [s], max wait [s], mean loss ratio) over [0, window_s].
+    """
+    if rho <= 1.0:
+        return 0.0, 0.0, 0.0
+    slope  = rho - 1.0
+    d_cap  = 8.0 * buffer_bytes / cap_bps
+    t_fill = d_cap / slope
+    if window_s <= t_fill:
+        return slope * window_s / 2.0, slope * window_s, 0.0
+    mean = (d_cap * t_fill / 2.0 + d_cap * (window_s - t_fill)) / window_s
+    loss = (rho - 1.0) / rho * (window_s - t_fill) / window_s
+    return mean, d_cap, loss
+
+
+def _port_cumulative_rho(
+    D: dict,
+    sw_map: dict[str, str],
+    scenario: str,
+) -> dict[tuple[str, int], tuple[float, float]]:
+    """
+    Strict-priority cumulative load of every egress/trunk port:
+    {(port_label, prio): (ρ_p, C_port)}, ρ_p = Σ_{k≥p} Λ_k / C_port.
+    Same port and capacity rules as compute_weights().
+    """
+    trunk_capacity = CAPACITY_TRUNK_UPGRADED if scenario == 'upgraded' else CAPACITY_TRUNK
+    load: dict[str, dict[int, float]] = {}
+    for vlan, df in D.items():
+        prio = get_vlan_priority(vlan)
+        nonzero = df.stack()
+        for (src, dst), bw in nonzero[nonzero > 0].items():
+            sw_s, sw_d = sw_map[src], sw_map[dst]
+            ports = [f'L5_OutPort_{dst}']
+            if sw_s != sw_d:
+                ports.append(f'L4_Trunk_{sw_s}_to_{sw_d}')
+            for p_label in ports:
+                load.setdefault(p_label, {k: 0.0 for k in range(8)})[prio] += bw * 1e6
+    out = {}
+    for p_label, by_prio in load.items():
+        upgraded = scenario == 'upgraded' and ('Trunk' in p_label or p_label == 'L5_OutPort_BBP')
+        cap = trunk_capacity if upgraded else CAPACITY_DEFAULT
+        for p in range(8):
+            out[(p_label, p)] = (sum(by_prio[k] for k in range(p, 8)) / cap, cap)
+    return out
+
+
 def compute_e2e_metrics(
     labels: list[str],
     W: np.ndarray,
     PL: np.ndarray,
     D: dict,
     sw_map: dict[str, str],
+    scenario: str = 'base',
+    window_s: float = OBS_WINDOW_S,
 ) -> dict:
     """
     End-to-end latency and loss of every SV and GOOSE flow.
@@ -612,6 +669,11 @@ def compute_e2e_metrics(
     The latency of a flow is the sum of the edge delays along its path
     (serialization + processing + HOL + queuing + serialization ...), which is
     the quantity measured by the DES. The flow PLR is 1 - prod(1 - p_hop).
+
+    Queue edges whose cumulative load is ρ ≥ 1 have no steady state; for those
+    hops the waiting time and loss are taken from the fluid overload model over
+    the observation window (fluid_overload), so the reported delay of a
+    saturated flow is its mean over [0, window_s] instead of the clamp T_MAX.
 
     Returns scalar metrics in µs / %:
       E2E_Avg_{SV,GOOSE}_us, E2E_Max_{SV,GOOSE}_us,
@@ -622,6 +684,7 @@ def compute_e2e_metrics(
     classes = {'SV': SV_VLAN_IDS, 'GOOSE': GOOSE_VLAN_IDS}
     delays = {c: [] for c in classes}
     losses = {c: [] for c in classes}
+    port_rho = _port_cumulative_rho(D, sw_map, scenario)
 
     for vlan, df in D.items():
         vid = get_vlan_id(vlan)
@@ -629,13 +692,20 @@ def compute_e2e_metrics(
         if cls is None:
             continue
         nonzero = df.stack()
+        prio = get_vlan_priority(vlan)
         for (src, dst), bw in nonzero[nonzero > 0].items():
             path = flow_path(src, dst, vlan, sw_map)
             d_s, keep = 0.0, 1.0
             for a, b in zip(path, path[1:]):
                 i, j = idx[a], idx[b]
-                d_s  += W[i, j] * T_MAX
-                keep *= 1.0 - PL[i, j]
+                rho, cap = port_rho.get((b, prio), (0.0, 1.0))
+                if a.startswith('L4_Priority_') and rho >= 1.0:
+                    wait, _, loss = fluid_overload(rho, cap, window_s)
+                    d_s  += wait
+                    keep *= 1.0 - loss
+                else:
+                    d_s  += W[i, j] * T_MAX
+                    keep *= 1.0 - PL[i, j]
             delays[cls].append(d_s * 1e6)
             losses[cls].append((1.0 - keep) * 100)
 

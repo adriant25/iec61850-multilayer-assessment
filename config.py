@@ -35,6 +35,11 @@ T_PROC_SWITCH: float = 2e-6  # 2 µs in seconds
 # Buffer size = 4,000,000 B (same as the DES port_buffer_size); packet size = 149 B (SV frame).
 K_BUFFER: int = int(np.floor(4_000_000 / 149))  # = 26,845 packets
 
+# Output-port buffer [bytes] and observation window [s] used by the fluid
+# overload model of saturated ports (same buffer and duration as the DES runs).
+PORT_BUFFER_BYTES: float = 4_000_000
+OBS_WINDOW_S: float = 7.0
+
 # Legacy constant, still imported by single_bay_two_sw.py. The main model uses
 # the M/D/1 mean wait 0.5 · (L/C) · ρ/(1-ρ) directly in analysis.compute_weights.
 FACTOR_4: int = 4

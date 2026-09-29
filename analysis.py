@@ -680,6 +680,7 @@ def compute_e2e_metrics(
     sw_map: dict[str, str],
     scenario: str = 'base',
     window_s: float = OBS_WINDOW_S,
+    D_window: dict | None = None,
 ) -> dict:
     """
     End-to-end latency and loss of every SV and GOOSE flow.
@@ -692,6 +693,9 @@ def compute_e2e_metrics(
     hops the waiting time and loss are taken from the fluid overload model over
     the observation window (fluid_overload), so the reported delay of a
     saturated flow is its mean over [0, window_s] instead of the clamp T_MAX.
+    The fluid load is taken from D_window (the demand averaged over the
+    window, i.e. steady state) when given: a GOOSE burst lasts milliseconds
+    and must not be treated as if it persisted for the whole window.
 
     Returns scalar metrics in µs / %:
       E2E_Avg_{SV,GOOSE}_us, E2E_Max_{SV,GOOSE}_us,
@@ -703,6 +707,8 @@ def compute_e2e_metrics(
     delays = {c: [] for c in classes}
     losses = {c: [] for c in classes}
     port_rho = _port_cumulative_rho(D, sw_map, scenario)
+    fluid_rho = (_port_cumulative_rho(D_window, sw_map, scenario)
+                 if D_window is not None else port_rho)
 
     for vlan, df in D.items():
         vid = get_vlan_id(vlan)
@@ -725,7 +731,8 @@ def compute_e2e_metrics(
                     d_s  += frame_bits / link_cap
                     keep *= 1.0 - PL[i, j]
                 elif a.startswith('L4_Priority_') and rho >= 1.0:
-                    wait, _, loss = fluid_overload(rho, cap, window_s)
+                    rho_w, cap_w = fluid_rho.get((b, prio), (rho, cap))
+                    wait, _, loss = fluid_overload(rho_w, cap_w, window_s)
                     d_s  += wait
                     keep *= 1.0 - loss
                 else:

@@ -46,7 +46,10 @@ FACTOR_4: int = 4
 
 # SV / GOOSE VLAN IDs (per-bay). Used to select end-to-end flows and frame specs.
 SV_VLAN_IDS: tuple = (1, 2, 16, 17)
-GOOSE_VLAN_IDS: tuple = (3, 4)
+# GOOSE flows that retransmit in burst mode during the 50BF cascade, matching the
+# DES response table: line-protection trip (V3/V4: PP -> peer PP + own MU) and the
+# breaker-status reply of each MU (V8/V9: MU -> BBP, V10-V13: MU -> own PP).
+GOOSE_VLAN_IDS: tuple = (3, 4, 8, 9, 10, 11, 12, 13)
 
 # =============================================================================
 # TRAFFIC SPECIFICATIONS PER PROTOCOL
@@ -128,7 +131,7 @@ def get_frame_specs(vlan_name: str, src: str | None = None,
         vlan_name:  VLAN label.
         src:        Sending device (only needed for V6/V7, whose direction
                     determines SMC request vs. MU response frames).
-        goose_freq: Current GOOSE retransmission rate [Hz] for V3/V4.
+        goose_freq: Current GOOSE retransmission rate [Hz] of the burst VLANs.
     """
     if 'PTP' in vlan_name:
         return TRAFFIC_SPECS['PTP']
@@ -137,8 +140,10 @@ def get_frame_specs(vlan_name: str, src: str | None = None,
         return {'freq': 1, 'size': 179}
     if vid in SV_VLAN_IDS:
         return TRAFFIC_SPECS['SV']
-    if vid in GOOSE_VLAN_IDS:
+    if vid in (3, 4):   # line-protection trip GOOSE
         return {'freq': goose_freq, 'size': TRAFFIC_SPECS['GOOSE']['size']}
+    if vid in GOOSE_VLAN_IDS:   # MU breaker-status GOOSE (V8-V13)
+        return {'freq': goose_freq, 'size': TRAFFIC_SPECS['MON']['size']}
     if vid in (6, 7):
         return TRAFFIC_SPECS['SMC'] if src == 'SMC' else TRAFFIC_SPECS['MU_RES']
     return TRAFFIC_SPECS['MON']

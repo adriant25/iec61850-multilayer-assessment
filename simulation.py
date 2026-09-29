@@ -108,7 +108,8 @@ def run_simulation(max_bays: int = 10, scenario: str = 'base') -> tuple[pd.DataF
 
             # End-to-end SV / GOOSE flow latency (path sums) -- the quantity the DES
             # measures. IEC compliance is judged on these, not on single edges.
-            e2e = compute_e2e_metrics(labels, W, PL, D, sw_map, scenario)
+            e2e = compute_e2e_metrics(labels, W, PL, D, sw_map, scenario,
+                                      D_window=D_base)
             metrics.update(e2e)
             metrics['IEC_Violation'] = int(
                 e2e['E2E_Max_SV_us'] >= T_MAX * 1e6

@@ -19,7 +19,8 @@ All functions are pure (no global state mutations) and re-entrant.
 import numpy as np
 import pandas as pd
 
-from config import TRAFFIC_SPECS, get_vlan_priority, get_mbps
+from config import (TRAFFIC_SPECS, GOOSE_VLAN_IDS, get_vlan_priority, get_mbps,
+                    get_frame_specs)
 
 # =============================================================================
 # 1. GOOSE BURST TIMELINE
@@ -210,16 +211,17 @@ def generate_demand_tensor(
         D[f'L3_VLAN_B{n}_V7'].at['SMC', mu2] = bw_smc
         D[f'L3_VLAN_B{n}_V7'].at[mu2, 'SMC'] = bw_mu_r
 
-        # V8–V15 — Monitoring flows (simplified: one flow per VLAN)
-        # Source and destination follow the original bay traffic matrix.
+        # V8–V13 — MU breaker-status GOOSE (burst during the 50BF cascade)
+        # V14/V15 — MU monitoring to the SMC (1 Hz, not event-driven)
         mon_routing = {
             8:  (mu1, 'BBP'), 9:  (mu2, 'BBP'),
             10: (mu1,  pp1),  11: (mu1,  pp1),
             12: (mu2,  pp2),  13: (mu2,  pp2),
             14: (mu1, 'SMC'), 15: (mu2, 'SMC'),
         }
+        bw_status = get_mbps(TRAFFIC_SPECS['MON']['size'], freq_goose)
         for v, (src, dst) in mon_routing.items():
-            D[f'L3_VLAN_B{n}_V{v}'].at[src, dst] = bw_mon
+            D[f'L3_VLAN_B{n}_V{v}'].at[src, dst] = bw_status if v in GOOSE_VLAN_IDS else bw_mon
 
     return D
 
@@ -232,9 +234,9 @@ def update_goose_demand(
     """
     Return an updated demand tensor with GOOSE VLANs recalculated for delta_t.
 
-    Only the V3 and V4 VLANs (GOOSE Protection) change between burst snapshots.
-    All other VLANs are shared by reference (shallow-copy of the dict) to avoid
-    redundant DataFrame copies during the burst simulation loop.
+    Only the burst VLANs (GOOSE_VLAN_IDS: trip V3/V4 and MU status V8–V13)
+    change between burst snapshots. All other VLANs are shared by reference
+    (shallow-copy of the dict) to avoid redundant DataFrame copies.
 
     Args:
         D_base:  Base demand tensor at steady state (delta_t = 1000 ms).
@@ -242,28 +244,19 @@ def update_goose_demand(
         delta_t: Current GOOSE retransmission interval [ms].
 
     Returns:
-        Updated demand tensor D with fresh V3/V4 DataFrames.
+        Updated demand tensor D with fresh burst-VLAN DataFrames.
     """
     D = dict(D_base)  # Shallow copy — non-GOOSE DFs are shared, not duplicated
 
     freq_goose = 1000.0 / delta_t if delta_t > 0 else 0.0
-    bw_goose   = get_mbps(TRAFFIC_SPECS['GOOSE']['size'], freq_goose)
 
     for n in range(1, n_bays + 1):
-        pp1, pp2 = f'PP1B{n}L', f'PP2B{n}L'
-        mu1, mu2 = f'MU1B{n}',  f'MU2B{n}'
-
-        # V3: PP1 → PP2 and PP1 → MU1
-        df3 = D_base[f'L3_VLAN_B{n}_V3'].copy()
-        df3.at[pp1, pp2] = bw_goose
-        df3.at[pp1, mu1] = bw_goose
-        D[f'L3_VLAN_B{n}_V3'] = df3
-
-        # V4: PP2 → PP1 and PP2 → MU2
-        df4 = D_base[f'L3_VLAN_B{n}_V4'].copy()
-        df4.at[pp2, pp1] = bw_goose
-        df4.at[pp2, mu2] = bw_goose
-        D[f'L3_VLAN_B{n}_V4'] = df4
+        for vid in GOOSE_VLAN_IDS:
+            vlan = f'L3_VLAN_B{n}_V{vid}'
+            size = get_frame_specs(vlan)['size']
+            df = D_base[vlan].copy()
+            df[df > 0] = get_mbps(size, freq_goose)
+            D[vlan] = df
 
     return D
 

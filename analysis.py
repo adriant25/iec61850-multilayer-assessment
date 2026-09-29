@@ -35,8 +35,9 @@ import networkx as nx
 
 from config import (
     T_MAX, CAPACITY_DEFAULT, CAPACITY_TRUNK, CAPACITY_TRUNK_UPGRADED,
-    FABRIC_CAPACITY, T_PROC_SWITCH, K_BUFFER, FACTOR_4,
-    TRAFFIC_SPECS, get_vlan_priority,
+    FABRIC_CAPACITY, T_PROC_SWITCH, K_BUFFER,
+    SV_VLAN_IDS, GOOSE_VLAN_IDS,
+    get_vlan_priority, get_vlan_id, get_frame_specs,
 )
 
 # =============================================================================
@@ -62,8 +63,9 @@ def compute_weights(
       L1->L2  : Transmission delay = (avg_frame_size × 8) / CAPACITY_DEFAULT / T_MAX
       L2->L3  : Fixed processing delay = T_PROC_SWITCH / T_MAX
       L3->L4  : HOL-blocking weight from switch fabric utilisation
-      L4->L5  : M/M/1 queuing delay + M/M/1/K packet-loss probability (Altman–Jean-Marie)
-      L5->L1  : Nominal egress weight (100-byte reference frame)
+      L4->L5  : M/D/1 mean queue wait + M/M/1/K packet-loss probability (Altman–Jean-Marie)
+      L4->L4  : Trunk cable serialization (S_avg,trunk / C_trunk)
+      L5->L1  : Egress serialization (S_avg,m / C_m)
 
     Args:
         labels:      Ordered node label list from build_topology().
@@ -102,18 +104,7 @@ def compute_weights(
                 continue  # Device sends no traffic on this VLAN
 
             # Resolve per-VLAN frame specs (GOOSE freq is dynamic)
-            if 'PTP' in vlan:
-                specs = TRAFFIC_SPECS['PTP']
-            elif 'V5' in vlan:
-                specs = {'freq': 1, 'size': 179}
-            elif 'SV' in vlan or '_V1' in vlan or '_V2' in vlan:
-                specs = TRAFFIC_SPECS['SV']
-            elif 'GOOSE' in vlan or '_V3' in vlan or '_V4' in vlan:
-                specs = {'freq': goose_freq, 'size': TRAFFIC_SPECS['GOOSE']['size']}
-            elif '_V6' in vlan or '_V7' in vlan:
-                specs = TRAFFIC_SPECS['SMC'] if d == 'SMC' else TRAFFIC_SPECS['MU_RES']
-            else:
-                specs = TRAFFIC_SPECS['MON']
+            specs = get_frame_specs(vlan, src=d, goose_freq=goose_freq)
 
             sum_size_freq += specs['size'] * specs['freq']
             sum_freq      += specs['freq']
@@ -214,23 +205,13 @@ def compute_weights(
     for vlan, df in D.items():
         prio = get_vlan_priority(vlan)
 
-        # Resolve frame specs once per VLAN
-        if 'GOOSE' in vlan or '_V3' in vlan or '_V4' in vlan:
-            specs = {'freq': goose_freq, 'size': TRAFFIC_SPECS['GOOSE']['size']}
-        elif 'SV' in vlan or '_V1' in vlan or '_V2' in vlan:
-            specs = TRAFFIC_SPECS['SV']
-        elif 'PTP' in vlan:
-            specs = TRAFFIC_SPECS['PTP']
-        else:
-            specs = TRAFFIC_SPECS['MON']
-
-        ssf = specs['size'] * specs['freq']  # size × freq (for average frame size)
-        sf  = specs['freq']
-
         # Iterate only over non-zero (src, dst) pairs (sparse inner loop)
         nonzero = df.stack()
         nonzero = nonzero[nonzero > 0]
         for (src, dst), bw in nonzero.items():
+            specs = get_frame_specs(vlan, src=src, goose_freq=goose_freq)
+            ssf = specs['size'] * specs['freq']  # size × freq (for average frame size)
+            sf  = specs['freq']
             sw_s, sw_d = sw_map[src], sw_map[dst]
 
             # Determine which output ports this flow traverses
@@ -277,7 +258,6 @@ def compute_weights(
             if sf_accum <= 0:
                 continue
             l_avg   = (ssf_accum / sf_accum) * 8   # bits
-            w_trans = (l_avg / cap) / T_MAX
 
             # Strict Priority: cumulative load from priority k upward (paper Eq. 15)
             bps_accum = sum(stats[p]['bps'] for p in range(k, 8))
@@ -286,9 +266,12 @@ def compute_weights(
             w_queue = 0.0
             p_loss  = 0.0
 
-            # Queuing delay (M/M/1 formula; clamped at saturation)
+            # Mean waiting time in queue, M/G/1 Pollaczek-Khinchine with
+            # deterministic service (E[S^2] = E[S]^2):  W = 0.5 · (L/C) · ρ/(1-ρ).
+            # This edge carries ONLY the waiting time; the serialization of the
+            # frame onto the outgoing wire is the next edge (L5->L1 or trunk cable).
             if 0 < rho < 1.0:
-                delay_s = (rho * l_avg) / (FACTOR_4 * cap * (1 - rho))
+                delay_s = 0.5 * (l_avg / cap) * rho / (1 - rho)
                 w_queue = delay_s / T_MAX
             elif rho >= 1.0:
                 w_queue = 1.0  # Queue saturated -- delay exceeds T_MAX
@@ -317,7 +300,7 @@ def compute_weights(
                 p_loss = float(np.clip((1.0 - rho) / (rho_neg_K - rho), 0.0, 1.0))
 
             # Independent weight per priority level (paper Eq. 17 -- no accumulation)
-            w_total = min(1.0, w_trans + w_queue)
+            w_total = min(1.0, w_queue)
 
             # Assign weights to the L4 -> L5 edges of the correct priority
             for idx_src in np.where(A[:, idx_dst] == 1)[0]:
@@ -373,15 +356,25 @@ def compute_weights(
             W[idx_s, idx_d] = min(1.0, w_trunk_link)
 
     # -------------------------------------------------------------------------
-    # Layer 5 -> Layer 1: nominal egress weight (physical link transmission)
+    # Layer 5 -> Layer 1: serialization of the frames leaving egress port m
+    #   w = (S_avg,m · 8 / C_m) / T_MAX, with S_avg,m the rate-weighted mean
+    #   frame size of all traffic exiting that port (paper Table: L5 -> L1).
     # -------------------------------------------------------------------------
     for d in all_devices:
-        if d != 'GPS':
-            try:
-                W[labels.index(f'L5_OutPort_{d}'),
-                  labels.index(f'L1_Equipment_{d}')] = (100 * 8 / CAPACITY_DEFAULT) / T_MAX
-            except ValueError:
-                pass
+        if d == 'GPS':
+            continue
+        p_label = f'L5_OutPort_{d}'
+        stats = port_stats.get(p_label)
+        ssf_total = sum(stats[k]['ssf'] for k in range(8)) if stats else 0.0
+        sf_total  = sum(stats[k]['sf']  for k in range(8)) if stats else 0.0
+        s_avg_bits = (ssf_total / sf_total) * 8 if sf_total > 0 else 100 * 8
+        cap = (trunk_capacity if (scenario == 'upgraded' and d == 'BBP')
+               else CAPACITY_DEFAULT)
+        try:
+            W[labels.index(p_label),
+              labels.index(f'L1_Equipment_{d}')] = (s_avg_bits / cap) / T_MAX
+        except ValueError:
+            pass
 
     return W, J, PL, u_p
 
@@ -389,6 +382,37 @@ def compute_weights(
 # =============================================================================
 # 2. NETWORK ANALYSIS AND METRICS
 # =============================================================================
+
+def weighted_global_efficiency(G: nx.DiGraph, endpoints: list[int]) -> float:
+    """
+    Latora–Marchiori global efficiency over equipment (L1) node pairs:
+
+        E = 1 / (n (n-1)) · Σ_{i≠j ∈ L1} 1 / d(i, j)
+
+    where d(i, j) is the minimum-latency directed path length in ms through
+    the switching fabric and unreachable pairs contribute 0. Restricting the
+    sum to L1 endpoints keeps E an end-to-end quantity: internal pipeline
+    nodes (VLAN, queue) have sub-µs edges that would otherwise dominate.
+
+    Args:
+        G:         Directed graph whose 'weight' attribute is the edge delay [s].
+        endpoints: Indices of the L1 equipment nodes (the n in the normaliser,
+                   also for pairs whose node was removed from G).
+    """
+    n = len(endpoints)
+    if n < 2:
+        return 0.0
+    targets = set(endpoints)
+    total = 0.0
+    for src in endpoints:
+        if src not in G:
+            continue
+        dists = nx.single_source_dijkstra_path_length(G, src, weight='weight')
+        for dst, d in dists.items():
+            if dst != src and dst in targets and d > 0:
+                total += 1.0 / (d * 1e3)  # 1/ms
+    return total / (n * (n - 1))
+
 
 def analyze_network(
     n_bays: int,
@@ -458,17 +482,15 @@ def analyze_network(
         # graphs with high conductance variance).
         lambda_2 = nx.algebraic_connectivity(G_sym, weight='weight', method='tracemin_lu')
 
-        # Global efficiency -- requires undirected graph (NetworkXNotImplemented on DiGraph)
-        global_efficiency = nx.global_efficiency(G_sym)
+        # Latency-weighted global efficiency on the directed forwarding graph
+        # (nx.global_efficiency ignores weights, so it is computed explicitly).
+        l1_nodes = [i for i, lbl in enumerate(labels) if lbl.startswith('L1_')]
+        global_efficiency = weighted_global_efficiency(G_latency, l1_nodes)
 
-        # Weighted betweenness centrality on the directed graph
-        # For large graphs (N >= 6) use k-approximation to keep runtime tractable
-        if use_approx and len(G_latency) > 50:
-            k_val = max(10, 40 - len(labels) // 10)
-        else:
-            k_val = None
+        # Exact weighted betweenness centrality on the directed graph
+        # (graphs have < 400 nodes, so sampling is unnecessary).
         bet_cen = nx.betweenness_centrality(
-            G_latency, weight='weight', normalized=True, k=k_val, seed=42
+            G_latency, weight='weight', normalized=True
         )
         bet_cen_labeled = {labels[k]: v for k, v in bet_cen.items()}
 
@@ -481,9 +503,11 @@ def analyze_network(
             for node_label in top_nodes:
                 if node_label not in labels:
                     continue
-                G_copy = G_sym.copy()
+                G_copy = G_latency.copy()
                 G_copy.remove_node(labels.index(node_label))
-                e_removed = nx.global_efficiency(G_copy)
+                # Same endpoint set as the intact graph: a removed device simply
+                # contributes 0, so removal is never rewarded by a smaller n.
+                e_removed = weighted_global_efficiency(G_copy, l1_nodes)
                 vuln_dict[node_label] = max(0.0,
                     (global_efficiency - e_removed) / global_efficiency)
 
@@ -550,6 +574,81 @@ def analyze_network(
         metrics[f'Loss_P95_P{p}']    = float(np.percentile(losses, 95))  if losses else 0.0
 
     return metrics
+
+
+# =============================================================================
+# 2b. END-TO-END FLOW LATENCY (path sum of edge weights)
+# =============================================================================
+
+def flow_path(src: str, dst: str, vlan: str, sw_map: dict[str, str]) -> list[str]:
+    """
+    Node sequence traversed by one flow through the 5-layer graph.
+
+    Intra-switch:  L1 -> L2 -> L3 -> L4(prio) -> L5 -> L1
+    Inter-switch:  L1 -> L2 -> L3@Sa -> L4(prio@Sa) -> Trunk(Sa->Sb) -> Trunk(Sb->Sa)
+                   -> L3@Sb -> L4(prio@Sb) -> L5 -> L1
+    """
+    prio = get_vlan_priority(vlan)
+    sw_s, sw_d = sw_map[src], sw_map[dst]
+    path = [f'L1_Equipment_{src}', f'L2_InPort_{src}',
+            f'{vlan}_{sw_s}', f'L4_Priority_{sw_s}_Prio_{prio}']
+    if sw_s != sw_d:
+        path += [f'L4_Trunk_{sw_s}_to_{sw_d}', f'L4_Trunk_{sw_d}_to_{sw_s}',
+                 f'{vlan}_{sw_d}', f'L4_Priority_{sw_d}_Prio_{prio}']
+    path += [f'L5_OutPort_{dst}', f'L1_Equipment_{dst}']
+    return path
+
+
+def compute_e2e_metrics(
+    labels: list[str],
+    W: np.ndarray,
+    PL: np.ndarray,
+    D: dict,
+    sw_map: dict[str, str],
+) -> dict:
+    """
+    End-to-end latency and loss of every SV and GOOSE flow.
+
+    The latency of a flow is the sum of the edge delays along its path
+    (serialization + processing + HOL + queuing + serialization ...), which is
+    the quantity measured by the DES. The flow PLR is 1 - prod(1 - p_hop).
+
+    Returns scalar metrics in µs / %:
+      E2E_Avg_{SV,GOOSE}_us, E2E_Max_{SV,GOOSE}_us,
+      E2E_PLR_Avg_{SV,GOOSE}, E2E_PLR_Max_{SV,GOOSE}, E2E_{SV,GOOSE}_Compliance
+    where *_Compliance is the fraction of flows with delay < T_MAX.
+    """
+    idx = {lbl: i for i, lbl in enumerate(labels)}
+    classes = {'SV': SV_VLAN_IDS, 'GOOSE': GOOSE_VLAN_IDS}
+    delays = {c: [] for c in classes}
+    losses = {c: [] for c in classes}
+
+    for vlan, df in D.items():
+        vid = get_vlan_id(vlan)
+        cls = next((c for c, ids in classes.items() if vid in ids), None)
+        if cls is None:
+            continue
+        nonzero = df.stack()
+        for (src, dst), bw in nonzero[nonzero > 0].items():
+            path = flow_path(src, dst, vlan, sw_map)
+            d_s, keep = 0.0, 1.0
+            for a, b in zip(path, path[1:]):
+                i, j = idx[a], idx[b]
+                d_s  += W[i, j] * T_MAX
+                keep *= 1.0 - PL[i, j]
+            delays[cls].append(d_s * 1e6)
+            losses[cls].append((1.0 - keep) * 100)
+
+    out = {}
+    for cls in classes:
+        d = np.array(delays[cls])
+        l = np.array(losses[cls])
+        out[f'E2E_Avg_{cls}_us']     = float(d.mean()) if d.size else 0.0
+        out[f'E2E_Max_{cls}_us']     = float(d.max())  if d.size else 0.0
+        out[f'E2E_PLR_Avg_{cls}']    = float(l.mean()) if l.size else 0.0
+        out[f'E2E_PLR_Max_{cls}']    = float(l.max())  if l.size else 0.0
+        out[f'E2E_{cls}_Compliance'] = float((d < T_MAX * 1e6).mean()) if d.size else 1.0
+    return out
 
 
 # =============================================================================

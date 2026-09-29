@@ -18,3 +18,5 @@ venv/
 # IDE
 .vscode/
 .idea/
+results_baseline_pre_e2e/
+*.log

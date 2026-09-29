@@ -27,15 +27,21 @@ CAPACITY_BBP: float = 1000e6             # 1 Gbps  — BBP uplink (aggregates SV
 # Switch fabric (backplane) capacity used for HOL-blocking model
 FABRIC_CAPACITY: float = 68000.0  # Mbps
 
-# Fixed per-hop processing delay inside a managed switch
-T_PROC_SWITCH: float = 4e-6  # 4 µs in seconds
+# Fixed per-hop processing delay inside a managed switch.
+# Must match the DES reference (Simulador/main.py: switch_processing_time = 2e-6).
+T_PROC_SWITCH: float = 2e-6  # 2 µs in seconds
 
 # M/M/1/K buffer capacity expressed in packets.
-# Buffer size = 4 MiB; packet size = 149 B (IEC 61850 SV frame).
-K_BUFFER: int = int(np.floor(4 * 1024 * 1024 / 149))  # = 28,149 packets
+# Buffer size = 4,000,000 B (same as the DES port_buffer_size); packet size = 149 B (SV frame).
+K_BUFFER: int = int(np.floor(4_000_000 / 149))  # = 26,845 packets
 
-# Scaling factor in the M/M/1 queuing delay formula (empirical constant)
+# Legacy constant, still imported by single_bay_two_sw.py. The main model uses
+# the M/D/1 mean wait 0.5 · (L/C) · ρ/(1-ρ) directly in analysis.compute_weights.
 FACTOR_4: int = 4
+
+# SV / GOOSE VLAN IDs (per-bay). Used to select end-to-end flows and frame specs.
+SV_VLAN_IDS: tuple = (1, 2, 16, 17)
+GOOSE_VLAN_IDS: tuple = (3, 4)
 
 # =============================================================================
 # TRAFFIC SPECIFICATIONS PER PROTOCOL
@@ -91,6 +97,46 @@ def get_vlan_priority(vlan_name: str) -> int:
         pass
 
     return 4  # Default: treat unknown VLANs as low-priority
+
+
+def get_vlan_id(vlan_name: str) -> int | None:
+    """
+    Return the numeric per-bay VLAN ID of a label such as 'L3_VLAN_B3_V16', or
+    None for station-wide VLANs ('L3_VLAN_PTP', 'L3_VLAN_V5').
+
+    Exact parsing avoids substring collisions ('_V1' also matches '_V10'…'_V17').
+    """
+    if 'PTP' in vlan_name or vlan_name.endswith('_V5') or '_B' not in vlan_name:
+        return None
+    try:
+        return int(vlan_name.split('_V')[-1])
+    except (ValueError, IndexError):
+        return None
+
+
+def get_frame_specs(vlan_name: str, src: str | None = None,
+                    goose_freq: float = 1.0) -> dict:
+    """
+    Frame size (bytes) and rate (Hz) of the flows carried by a VLAN.
+
+    Args:
+        vlan_name:  VLAN label.
+        src:        Sending device (only needed for V6/V7, whose direction
+                    determines SMC request vs. MU response frames).
+        goose_freq: Current GOOSE retransmission rate [Hz] for V3/V4.
+    """
+    if 'PTP' in vlan_name:
+        return TRAFFIC_SPECS['PTP']
+    vid = get_vlan_id(vlan_name)
+    if vid is None:  # V5: BBP global broadcast
+        return {'freq': 1, 'size': 179}
+    if vid in SV_VLAN_IDS:
+        return TRAFFIC_SPECS['SV']
+    if vid in GOOSE_VLAN_IDS:
+        return {'freq': goose_freq, 'size': TRAFFIC_SPECS['GOOSE']['size']}
+    if vid in (6, 7):
+        return TRAFFIC_SPECS['SMC'] if src == 'SMC' else TRAFFIC_SPECS['MU_RES']
+    return TRAFFIC_SPECS['MON']
 
 
 def get_mbps(size_bytes: int, freq_hz: float) -> float:

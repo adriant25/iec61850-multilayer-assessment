@@ -82,8 +82,9 @@ def generate_devices(n_bays: int) -> tuple[list[str], dict[str, str]]:
       - MU1Bn  : Merging Unit 1, Bay n
       - MU2Bn  : Merging Unit 2, Bay n
 
-    Load balancing: for substations with more than 5 bays, even-numbered
-    bays are assigned to SW2 to distribute traffic across both switches.
+    Load balancing: for substations with more than 5 bays (24-port limit),
+    bays 1 … floor(N/2) stay on SW1 and the rest go to SW2. This is the same
+    split used by the DES case files (CASO{N}BAHIAS/*SWPB.xlsx).
 
     Args:
         n_bays: Number of protection bays to simulate.
@@ -103,8 +104,8 @@ def generate_devices(n_bays: int) -> tuple[list[str], dict[str, str]]:
     sw_map = {d: 'SW1' for d in global_devices}
 
     for n in range(1, n_bays + 1):
-        # Even bays go to SW2 only when total bays exceed single-switch capacity
-        target_sw = 'SW1' if (n_bays <= 5 or n % 2 != 0) else 'SW2'
+        # Contiguous split once the bays exceed single-switch capacity
+        target_sw = 'SW1' if (n_bays <= 5 or n <= n_bays // 2) else 'SW2'
         for unit in [f'PP1B{n}L', f'PP2B{n}L', f'MU1B{n}', f'MU2B{n}']:
             sw_map[unit] = target_sw
 

@@ -30,7 +30,7 @@ import networkx as nx
 from config  import T_MAX
 from model   import (generate_goose_burst_timeline, generate_devices,
                      generate_demand_tensor, update_goose_demand, build_topology)
-from analysis import (compute_weights, analyze_network,
+from analysis import (compute_weights, analyze_network, compute_e2e_metrics,
                       compute_cbr, compute_recovery_time)
 
 # Ensure the output directory exists before any file is written
@@ -106,6 +106,15 @@ def run_simulation(max_bays: int = 10, scenario: str = 'base') -> tuple[pd.DataF
                 compute_vulnerability=is_steady,
             )
 
+            # End-to-end SV / GOOSE flow latency (path sums) -- the quantity the DES
+            # measures. IEC compliance is judged on these, not on single edges.
+            e2e = compute_e2e_metrics(labels, W, PL, D, sw_map)
+            metrics.update(e2e)
+            metrics['IEC_Violation'] = int(
+                e2e['E2E_Max_SV_us'] >= T_MAX * 1e6
+                or e2e['E2E_Max_GOOSE_us'] >= T_MAX * 1e6
+            )
+
             # Pop internal dicts before they are stored as flat records
             centrality_dict = metrics.pop('centrality_dict')
             vuln_dict       = metrics.pop('vuln_dict')
@@ -179,8 +188,13 @@ def export_organized_report(
     summary = pd.DataFrame({
         'N_Bays':                     avg_df['N_Bays'],
         'Scenario':                   avg_df['Scenario'],
-        'Avg Latency P6-Prot (ms)':   avg_df.get('Latency_Avg_P6',    pd.Series(dtype=float)),
-        'Max Latency P4-SV (ms)':     avg_df.get('Latency_Max_P4',    pd.Series(dtype=float)),
+        'E2E Avg SV (us)':            avg_df.get('E2E_Avg_SV_us',     pd.Series(dtype=float)),
+        'E2E Max SV (us, worst snapshot)':    max_df.get('E2E_Max_SV_us',    pd.Series(dtype=float)),
+        'E2E Avg GOOSE (us)':         avg_df.get('E2E_Avg_GOOSE_us',  pd.Series(dtype=float)),
+        'E2E Max GOOSE (us, worst snapshot)': max_df.get('E2E_Max_GOOSE_us', pd.Series(dtype=float)),
+        'E2E Max SV PLR (%)':         max_df.get('E2E_PLR_Max_SV',    pd.Series(dtype=float)),
+        'Queue wait Avg P6-Prot (ms)':   avg_df.get('Latency_Avg_P6',    pd.Series(dtype=float)),
+        'Queue wait Max P4-SV (ms)':     avg_df.get('Latency_Max_P4',    pd.Series(dtype=float)),
         'Global Efficiency Avg':      avg_df.get('Global_Efficiency', pd.Series(dtype=float)),
         'Load Gini Avg':              avg_df.get('Load_Gini',         pd.Series(dtype=float)),
         'Fiedler λ₂ Avg':             avg_df.get('Fiedler_Lambda2',   pd.Series(dtype=float)),
@@ -269,6 +283,9 @@ def export_metrics_by_scenario(
     col_order = [
         'N_Bays', 'Snapshot_Time_ms', 'Delta_T_ms', 'Total_Nodes',
         'Fiedler_Lambda2', 'Global_Efficiency', 'Load_Gini',
+        'E2E_Avg_SV_us', 'E2E_Max_SV_us', 'E2E_PLR_Avg_SV', 'E2E_PLR_Max_SV', 'E2E_SV_Compliance',
+        'E2E_Avg_GOOSE_us', 'E2E_Max_GOOSE_us', 'E2E_PLR_Avg_GOOSE', 'E2E_PLR_Max_GOOSE',
+        'E2E_GOOSE_Compliance',
         'Latency_Avg_P6', 'Latency_Max_P6', 'Jitter_Avg_P6',
         'Loss_Avg_P6',    'Loss_Max_P6',    'Loss_P95_P6',
         'Latency_Avg_P4', 'Latency_Max_P4', 'Jitter_Avg_P4',
@@ -290,26 +307,36 @@ def export_metrics_by_scenario(
         'Fiedler_Lambda2':   'Algebraic Connectivity λ₂',
         'Global_Efficiency': 'Global Network Efficiency',
         'Load_Gini':         'Load Gini Coefficient',
-        'Latency_Avg_P6':    'Latency Avg P6-Prot (ms)',
-        'Latency_Max_P6':    'Latency Max P6-Prot (ms)',
+        'E2E_Avg_SV_us':        'E2E Avg SV (us)',
+        'E2E_Max_SV_us':        'E2E Max SV (us)',
+        'E2E_PLR_Avg_SV':       'E2E PLR Avg SV (%)',
+        'E2E_PLR_Max_SV':       'E2E PLR Max SV (%)',
+        'E2E_SV_Compliance':    'SV flows < 3 ms (fraction)',
+        'E2E_Avg_GOOSE_us':     'E2E Avg GOOSE (us)',
+        'E2E_Max_GOOSE_us':     'E2E Max GOOSE (us)',
+        'E2E_PLR_Avg_GOOSE':    'E2E PLR Avg GOOSE (%)',
+        'E2E_PLR_Max_GOOSE':    'E2E PLR Max GOOSE (%)',
+        'E2E_GOOSE_Compliance': 'GOOSE flows < 3 ms (fraction)',
+        'Latency_Avg_P6':    'Queue wait Avg P6-Prot (ms)',
+        'Latency_Max_P6':    'Queue wait Max P6-Prot (ms)',
         'Jitter_Avg_P6':     'Jitter Avg P6-Prot (ms)',
         'Loss_Avg_P6':       'PLR Avg P6-Prot (%)',
         'Loss_Max_P6':       'PLR Max P6-Prot (%)',
         'Loss_P95_P6':       'PLR P95 P6-Prot (%)',
-        'Latency_Avg_P4':    'Latency Avg P4-SV (ms)',
-        'Latency_Max_P4':    'Latency Max P4-SV (ms)',
+        'Latency_Avg_P4':    'Queue wait Avg P4-SV (ms)',
+        'Latency_Max_P4':    'Queue wait Max P4-SV (ms)',
         'Jitter_Avg_P4':     'Jitter Avg P4-SV (ms)',
         'Loss_Avg_P4':       'PLR Avg P4-SV (%)',
         'Loss_Max_P4':       'PLR Max P4-SV (%)',
         'Loss_P95_P4':       'PLR P95 P4-SV (%)',
-        'Latency_Avg_P5':    'Latency Avg P5-Ctrl (ms)',
-        'Latency_Max_P5':    'Latency Max P5-Ctrl (ms)',
+        'Latency_Avg_P5':    'Queue wait Avg P5-Ctrl (ms)',
+        'Latency_Max_P5':    'Queue wait Max P5-Ctrl (ms)',
         'Jitter_Avg_P5':     'Jitter Avg P5-Ctrl (ms)',
         'Loss_Avg_P5':       'PLR Avg P5-Ctrl (%)',
         'Loss_Max_P5':       'PLR Max P5-Ctrl (%)',
         'Loss_P95_P5':       'PLR P95 P5-Ctrl (%)',
-        'Latency_Avg_P7':    'Latency Avg P7-PTP (ms)',
-        'Latency_Max_P7':    'Latency Max P7-PTP (ms)',
+        'Latency_Avg_P7':    'Queue wait Avg P7-PTP (ms)',
+        'Latency_Max_P7':    'Queue wait Max P7-PTP (ms)',
         'Jitter_Avg_P7':     'Jitter Avg P7-PTP (ms)',
         'Loss_Avg_P7':       'PLR Avg P7-PTP (%)',
         'Loss_Max_P7':       'PLR Max P7-PTP (%)',
@@ -682,7 +709,7 @@ def plot_sv_performance(df: pd.DataFrame) -> None:
     # Group by scenario and N_bays to find the maximum over all burst snapshots
     # (worst-case moment) of the *average* delay and *average* PLR for P4 traffic.
     worst = (df_snap
-             .groupby(['N_Bays', 'Scenario'])[['Latency_Avg_P4', 'Loss_Avg_P4']]
+             .groupby(['N_Bays', 'Scenario'])[['E2E_Avg_SV_us', 'E2E_PLR_Avg_SV']]
              .max()
              .reset_index())
 
@@ -701,13 +728,16 @@ def plot_sv_performance(df: pd.DataFrame) -> None:
     for scenario in worst['Scenario'].unique():
         sc = worst[worst['Scenario'] == scenario].sort_values('N_Bays')
         style = scenario_style.get(scenario, {'linestyle': '-', 'marker': '.', 'label': scenario})
-        ax.plot(sc['N_Bays'], sc['Latency_Avg_P4'],
+        ax.plot(sc['N_Bays'], sc['E2E_Avg_SV_us'],
                 color='#1f77b4' if scenario == 'base' else '#2ca02c',
                 linewidth=2.0, alpha=0.9 if scenario == 'base' else 0.8,
                 zorder=5, **style)
+    ax.axhline(T_MAX * 1e6, color='red', linestyle=':', linewidth=1.5,
+               label='IEC 61850 limit (3 ms)')
+    ax.set_yscale('log')
     ax.set_title('Average End-to-End Delay (SV)', fontsize=12, weight='bold')
     ax.set_xlabel('Number of Bays (N)')
-    ax.set_ylabel('Average Delay (ms)')
+    ax.set_ylabel('Average Delay (µs)')
     ax.set_xticks(sorted(worst['N_Bays'].unique()))
     ax.legend(fontsize=10, frameon=True)
     ax.grid(True, linestyle='--', alpha=0.6)
@@ -717,7 +747,7 @@ def plot_sv_performance(df: pd.DataFrame) -> None:
     for scenario in worst['Scenario'].unique():
         sc = worst[worst['Scenario'] == scenario].sort_values('N_Bays')
         style = scenario_style.get(scenario, {'linestyle': '-', 'marker': '.', 'label': scenario})
-        ax.plot(sc['N_Bays'], sc['Loss_Avg_P4'],
+        ax.plot(sc['N_Bays'], sc['E2E_PLR_Avg_SV'],
                 color='#1f77b4' if scenario == 'base' else '#2ca02c',
                 linewidth=2.0, alpha=0.9 if scenario == 'base' else 0.8,
                 zorder=5, **style)
@@ -906,15 +936,15 @@ def plot_network_graphs(max_bays: int = 10, scenario: str = 'base') -> None:
             lbl   = labels[idx]
             color, size_factor = _get_node_style(lbl)
             x, y  = pos[idx]
-            nx.draw_networkx_nodes(
+            nodes = nx.draw_networkx_nodes(
                 G, pos, nodelist=[idx], ax=ax,
                 node_color=color,
                 edgecolors='black',
                 linewidths=1.0,
                 node_size=base_size * size_factor,
                 alpha=1.0,
-                zorder=2,
             )
+            nodes.set_zorder(2)
 
         # ── Node labels ───────────────────────────────────────────────────────
         show_all  = n_bays <= 3
@@ -1093,12 +1123,13 @@ def plot_fault_evolution_snapshots(n_bays: int = 1, scenario: str = 'base') -> N
         for idx in G.nodes():
             lbl = labels[idx]
             color, size_factor = _get_node_style(lbl)
-            nx.draw_networkx_nodes(
+            nodes = nx.draw_networkx_nodes(
                 G, pos, nodelist=[idx], ax=ax,
                 node_color=color, edgecolors='black',
                 linewidths=1.0, node_size=base_size * size_factor,
-                alpha=1.0, zorder=2,
+                alpha=1.0,
             )
+            nodes.set_zorder(2)
             
         show_all = n_bays <= 3
         show_some = 4 <= n_bays <= 6

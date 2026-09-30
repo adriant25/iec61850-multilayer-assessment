@@ -46,6 +46,11 @@ FACTOR_4: int = 4
 
 # SV / GOOSE VLAN IDs (per-bay). Used to select end-to-end flows and frame specs.
 SV_VLAN_IDS: tuple = (1, 2, 16, 17)
+
+# Design parameter: SV streams per bay subscribed by the busbar protection.
+#   2 -> post-breaker currents of MU1 and MU2 (V1, V2): case study of the paper
+#   4 -> also V16/V17 (e.g. main + check zone), used in the sensitivity study
+BBP_SV_STREAMS_PER_BAY: int = 2
 # GOOSE flows that retransmit in burst mode during the 50BF cascade, matching the
 # DES response table: line-protection trip (V3/V4: PP -> peer PP + own MU) and the
 # breaker-status reply of each MU (V8/V9: MU -> BBP, V10-V13: MU -> own PP).

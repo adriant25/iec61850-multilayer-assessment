@@ -19,6 +19,7 @@ All functions are pure (no global state mutations) and re-entrant.
 import numpy as np
 import pandas as pd
 
+import config
 from config import (TRAFFIC_SPECS, GOOSE_VLAN_IDS, get_vlan_priority, get_mbps,
                     get_frame_specs)
 
@@ -194,9 +195,13 @@ def generate_demand_tensor(
         D[f'L3_VLAN_B{n}_V2'].at[mu2, 'BBP'] = bw_sv
         D[f'L3_VLAN_B{n}_V2'].at[mu2,  pp2]  = bw_sv
 
-        # V16/V17 — Additional intra-bay SV (MU → PP only, no BBP copy)
+        # V16/V17 — Additional intra-bay SV (MU → PP; also → BBP when the
+        # busbar protection subscribes four streams per bay)
         D[f'L3_VLAN_B{n}_V16'].at[mu1, pp1] = bw_sv
         D[f'L3_VLAN_B{n}_V17'].at[mu2, pp2] = bw_sv
+        if config.BBP_SV_STREAMS_PER_BAY == 4:
+            D[f'L3_VLAN_B{n}_V16'].at[mu1, 'BBP'] = bw_sv
+            D[f'L3_VLAN_B{n}_V17'].at[mu2, 'BBP'] = bw_sv
 
         # V3/V4 — GOOSE Protection: cross-bay and to local MU
         # PP1 sends GOOSE to PP2 and MU1; PP2 sends GOOSE to PP1 and MU2

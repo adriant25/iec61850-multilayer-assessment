@@ -880,7 +880,15 @@ def compute_e2e_metrics(
     Returns scalar metrics in µs / %:
       E2E_Avg_{SV,GOOSE}_us, E2E_Max_{SV,GOOSE}_us,
       E2E_PLR_Avg_{SV,GOOSE}, E2E_PLR_Max_{SV,GOOSE}, E2E_{SV,GOOSE}_Compliance
-    where *_Compliance is the fraction of flows with delay < T_MAX.
+    where *_Compliance is the fraction of flows with delay < T_MAX, and the
+    flow-constrained graph indicators, computed on the actual paths of the
+    time-critical flows F instead of shortest paths:
+      Flow_Efficiency   E_F = (1/|F|) sum_f 1/D_f                [ms^-1]
+      qdc_dict          QDC(v) = sum_f w_v(f) / sum_f sum_u w_u(f)
+                        (share of the flows' queuing wait accrued at node v)
+      flow_vuln_dict    V_F(v) = sum_{f through v} (1/D_f) / sum_f (1/D_f)
+                        (share of E_F lost if node v fails)
+      QDC_Top_Node / QDC_Top_Share  -- the node with the largest QDC.
     """
     idx = {lbl: i for i, lbl in enumerate(labels)}
     classes = {'SV': SV_VLAN_IDS, 'GOOSE': GOOSE_VLAN_IDS}
@@ -892,6 +900,13 @@ def compute_e2e_metrics(
     dev_sv = _device_sv_streams(D)
     s_dev_sv = SV_FRAME_BITS / CAPACITY_DEFAULT
     burst_wait = _synchronized_burst_waits(D, sw_map, scenario) if synchronized_burst else {}
+
+    queue_wait_at: dict[str, float] = {}   # node -> summed queuing wait of critical flows [s]
+    flows = []                            # (path nodes, end-to-end delay [s])
+
+    def add_wait(node, w):
+        if w > 0:
+            queue_wait_at[node] = queue_wait_at.get(node, 0.0) + w
 
     for vlan, df in D.items():
         vid = get_vlan_id(vlan)
@@ -906,9 +921,10 @@ def compute_e2e_metrics(
             # Publisher-link FIFO: an SV frame sees the device's other SV
             # streams; any other frame arrives at a random time and sees all.
             m = dev_sv.get(src, 0)
-            d_s = ndd1_mean_wait(m - 1 if cls == 'SV' else m, SV_PERIOD_S, s_dev_sv)
-            d_s += burst_wait.get((vlan, src, dst), 0.0)
-            keep = 1.0
+            w_pub = ndd1_mean_wait(m - 1 if cls == 'SV' else m, SV_PERIOD_S, s_dev_sv)
+            w_pub += burst_wait.get((vlan, src, dst), 0.0)
+            add_wait(path[0], w_pub)
+            d_s, keep = w_pub, 1.0
             for a, b in zip(path, path[1:]):
                 i, j = idx[a], idx[b]
                 rho, cap = port_rho.get((b, prio), (0.0, 1.0))
@@ -923,13 +939,34 @@ def compute_e2e_metrics(
                     wait, _, loss = fluid_overload(rho_w, cap_w, window_s)
                     d_s  += wait
                     keep *= 1.0 - loss
+                    add_wait(b, wait)
                 else:
-                    d_s  += W[i, j] * T_MAX
+                    hop = W[i, j] * T_MAX
+                    d_s  += hop
                     keep *= 1.0 - PL[i, j]
+                    if not (a.startswith('L2_') or b.startswith('L3_')):
+                        add_wait(b, hop)      # HOL and egress/trunk queue waits
             delays[cls].append(d_s * 1e6)
             losses[cls].append((1.0 - keep) * 100)
+            flows.append((path, d_s))
 
     out = {}
+    # Flow-constrained indicators over all time-critical (SV + GOOSE) flows
+    inv = np.array([1.0 / (d * 1e3) for _, d in flows]) if flows else np.array([])
+    out['Flow_Efficiency'] = float(inv.mean()) if inv.size else 0.0      # ms^-1
+    total_q = sum(queue_wait_at.values())
+    qdc = {n: w / total_q for n, w in queue_wait_at.items()} if total_q > 0 else {}
+    vf = {}
+    if inv.size and inv.sum() > 0:
+        for (path, _), e in zip(flows, inv):
+            for node in set(path):
+                vf[node] = vf.get(node, 0.0) + e
+        vf = {n: v / inv.sum() for n, v in vf.items()}
+    out['qdc_dict'] = qdc          # queuing-delay centrality (popped by caller)
+    out['flow_vuln_dict'] = vf     # flow vulnerability (popped by caller)
+    top = max(qdc, key=qdc.get) if qdc else ''
+    out['QDC_Top_Node'] = top
+    out['QDC_Top_Share'] = qdc.get(top, 0.0)
     for cls in classes:
         d = np.array(delays[cls])
         l = np.array(losses[cls])

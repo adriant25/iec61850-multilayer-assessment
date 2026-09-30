@@ -47,7 +47,8 @@ def _results(filename: str) -> str:
 # 1. MAIN SIMULATION LOOP
 # =============================================================================
 
-def run_simulation(max_bays: int = 10, scenario: str = 'base') -> tuple[pd.DataFrame, pd.DataFrame]:
+def run_simulation(max_bays: int = 10, scenario: str = 'base'
+                   ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Run the scalability simulation for N = 1 … max_bays bays.
 
@@ -68,9 +69,12 @@ def run_simulation(max_bays: int = 10, scenario: str = 'base') -> tuple[pd.DataF
     Returns:
         df_main: Long-format DataFrame -- one row per (N, scenario, snapshot, node).
         df_vuln: DataFrame with node vulnerability indices (steady state only).
+        df_flow_nodes: flow-constrained node indicators (QDC, flow vulnerability)
+                       at the pre-event and event snapshots.
     """
     history      = []  # One dict per (N, snapshot, node)
     vuln_history = []  # One dict per (N, node) -- only at steady state
+    flow_node_history = []  # One dict per (N, phase, node)
 
     print(f"Starting simulation: N=1 to {max_bays} bays  [scenario: {scenario}]")
 
@@ -120,6 +124,20 @@ def run_simulation(max_bays: int = 10, scenario: str = 'base') -> tuple[pd.DataF
             # Pop internal dicts before they are stored as flat records
             centrality_dict = metrics.pop('centrality_dict')
             vuln_dict       = metrics.pop('vuln_dict')
+            qdc_dict        = metrics.pop('qdc_dict')
+            flow_vuln_dict  = metrics.pop('flow_vuln_dict')
+
+            # Flow-constrained node indicators: pre-event snapshot and the first
+            # burst snapshot (event instant)
+            phase = {0: 'steady', 1: 'burst_peak'}.get(t_snapshots.index(t))
+            if phase:
+                for node in set(qdc_dict) | set(flow_vuln_dict):
+                    flow_node_history.append({
+                        'N_Bays': n_bays, 'Scenario': scenario, 'Phase': phase,
+                        'Node_Label': node,
+                        'QDC': qdc_dict.get(node, 0.0),
+                        'Flow_Vulnerability': flow_vuln_dict.get(node, 0.0),
+                    })
 
             # Save vulnerability records (steady state only -- one entry per node)
             for node_label, v_score in vuln_dict.items():
@@ -151,7 +169,7 @@ def run_simulation(max_bays: int = 10, scenario: str = 'base') -> tuple[pd.DataF
                     record['Centrality'] = centrality
                     history.append(record)
 
-    return pd.DataFrame(history), pd.DataFrame(vuln_history)
+    return pd.DataFrame(history), pd.DataFrame(vuln_history), pd.DataFrame(flow_node_history)
 
 
 # =============================================================================
@@ -1192,14 +1210,17 @@ if __name__ == '__main__':
     scenarios_to_run = ['base', 'upgraded', 'bbp_only']
     all_results = []
     all_vuln    = []
+    all_flow_nodes = []
 
     for scenario in scenarios_to_run:
-        df_scenario, df_vuln_scenario = run_simulation(max_bays=10, scenario=scenario)
+        df_scenario, df_vuln_scenario, df_flow_scenario = run_simulation(max_bays=10, scenario=scenario)
+        all_flow_nodes.append(df_flow_scenario)
         all_results.append(df_scenario)
         all_vuln.append(df_vuln_scenario)
 
     df_results  = pd.concat(all_results, ignore_index=True)
     df_vuln_all = pd.concat(all_vuln,    ignore_index=True)
+    pd.concat(all_flow_nodes, ignore_index=True).to_csv(_results('Flow_Node_Indicators.csv'), index=False)
 
     print('\nFinal results (first rows):')
     print(df_results.head())

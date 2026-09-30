@@ -29,6 +29,9 @@ quantitative QoS metrics by:
                                10 % of its steady-state value after a burst.
 """
 
+from functools import lru_cache
+from math import comb
+
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -36,8 +39,8 @@ import networkx as nx
 from config import (
     T_MAX, CAPACITY_DEFAULT, CAPACITY_TRUNK, CAPACITY_TRUNK_UPGRADED,
     FABRIC_CAPACITY, T_PROC_SWITCH, K_BUFFER, PORT_BUFFER_BYTES, OBS_WINDOW_S,
-    SV_VLAN_IDS, GOOSE_VLAN_IDS,
-    get_vlan_priority, get_vlan_id, get_frame_specs,
+    SV_VLAN_IDS, GOOSE_VLAN_IDS, TRAFFIC_SPECS,
+    get_vlan_priority, get_vlan_id, get_frame_specs, is_burst_vlan,
 )
 
 # =============================================================================
@@ -48,6 +51,83 @@ from config import (
 #             'upgraded' -- inter-switch trunk and BBP link at 1 Gbps
 #             'bbp_only' -- only the BBP link at 1 Gbps
 SCENARIOS = ('base', 'upgraded', 'bbp_only')
+
+
+SV_PERIOD_S: float = 1.0 / TRAFFIC_SPECS['SV']['freq']
+SV_FRAME_BITS: float = TRAFFIC_SPECS['SV']['size'] * 8
+
+
+@lru_cache(maxsize=None)
+def _ndd1_wait_units(n_other: int, D: float, pts: int = 600) -> float:
+    """Mean N*D/D/1 wait in units of the service time (see ndd1_mean_wait)."""
+    if n_other <= 0:
+        return 0.0
+    if n_other >= D:
+        return float('inf')
+    xs = np.linspace(0.0, n_other, pts)
+    q = np.zeros_like(xs)
+    for i, x in enumerate(xs):
+        for k in range(int(np.floor(x)) + 1, n_other + 1):
+            a = (k - x) / D
+            if a >= 1.0:
+                continue
+            q[i] += (comb(n_other, k) * a**k * (1 - a)**(n_other - k)
+                     * (D - n_other + x) / (D - k + x))
+    return float(np.trapezoid(q, xs))
+
+
+def ndd1_mean_wait(n_other: int, period_s: float, service_s: float) -> float:
+    """
+    Mean waiting time [s] of a frame that arrives at a FIFO queue fed by
+    ``n_other`` independent periodic streams (period ``period_s``, deterministic
+    service ``service_s``, uniformly random phases): the N*D/D/1 queue.
+
+    Uses the Benes / Roberts-Virtamo virtual-waiting-time tail
+        Q(x) = sum_{x<k<=n} C(n,k) ((k-x)/D)^k (1-(k-x)/D)^(n-k) (D-n+x)/(D-k+x),
+    with x and D = period/service in service-time units, and W = s * int Q(x) dx.
+    A frame of one of N streams sees the other N-1 streams (n_other = N-1).
+    """
+    return service_s * _ndd1_wait_units(int(n_other), round(period_s / service_s, 6))
+
+
+def egress_wait(stats: dict, k: int, cap: float) -> float:
+    """
+    Mean waiting time [s] of a priority-k frame in a strict-priority,
+    non-preemptive egress queue of capacity ``cap`` (bit/s).
+
+    ``stats[p]`` holds per-priority offered load ('bps'), rate-weighted size
+    sums ('ssf', 'sf'), and the number and load of periodic SV streams
+    ('n_sv', 'bps_sv'). Service times are deterministic (fixed-size frames).
+
+    * Residual work of the frame in service (any priority):
+          R = sum_j rho_j * s_j / 2
+    * Class with periodic SV streams: the SV streams interfere as an N*D/D/1
+      queue (exact for independent random phases); the non-SV part of the load
+      adds its residual, and higher-priority load dilates the wait:
+          W_k = (W_NDD1(n_sv - 1) + R_nonSV) / (1 - sigma_{k+1})
+    * Other classes (GOOSE, PTP, monitoring): Cobham's formula
+          W_k = R / ((1 - sigma_{k+1}) (1 - sigma_k))
+    with sigma_k the cumulative utilization of priority k and above.
+    """
+    def service(p):
+        return (stats[p]['ssf'] / stats[p]['sf']) * 8 / cap if stats[p]['sf'] > 0 else 0.0
+
+    rho = {p: stats[p]['bps'] / cap for p in range(8)}
+    sigma_k = sum(rho[p] for p in range(k, 8))
+    sigma_above = sum(rho[p] for p in range(k + 1, 8))
+    if sigma_k >= 1.0:
+        return float('inf')
+
+    s_sv = SV_FRAME_BITS / cap
+    r_sv = sum(stats[p]['bps_sv'] / cap * s_sv / 2 for p in range(8))
+    r_all = sum(rho[p] * service(p) / 2 for p in range(8))
+    r_non_sv = max(0.0, r_all - r_sv)
+
+    n_sv = stats[k]['n_sv']
+    if n_sv > 0:
+        w_sv = ndd1_mean_wait(n_sv - 1, SV_PERIOD_S, s_sv)
+        return (w_sv + r_non_sv) / (1.0 - sigma_above)
+    return r_all / ((1.0 - sigma_above) * (1.0 - sigma_k))
 
 
 def trunk_capacity_for(scenario: str) -> float:
@@ -243,13 +323,18 @@ def compute_weights(
                 ports.append(f'L4_Trunk_{sw_s}_to_{sw_d}')
                 ports.append(f'L5_OutPort_{dst}')
 
+            is_sv = get_vlan_id(vlan) in SV_VLAN_IDS
             for p_label in ports:
                 if p_label not in port_stats:
-                    port_stats[p_label] = {p: {'bps': 0.0, 'ssf': 0.0, 'sf': 0.0}
+                    port_stats[p_label] = {p: {'bps': 0.0, 'ssf': 0.0, 'sf': 0.0,
+                                               'n_sv': 0, 'bps_sv': 0.0}
                                            for p in range(8)}
                 port_stats[p_label][prio]['bps'] += bw * 1e6
                 port_stats[p_label][prio]['ssf'] += ssf
                 port_stats[p_label][prio]['sf']  += sf
+                if is_sv:
+                    port_stats[p_label][prio]['n_sv']   += 1
+                    port_stats[p_label][prio]['bps_sv'] += bw * 1e6
 
     # Compute queuing delay and PLR for each output port
     for p_label, stats in port_stats.items():
@@ -277,13 +362,12 @@ def compute_weights(
             w_queue = 0.0
             p_loss  = 0.0
 
-            # Mean waiting time in queue, M/G/1 Pollaczek-Khinchine with
-            # deterministic service (E[S^2] = E[S]^2):  W = 0.5 · (L/C) · ρ/(1-ρ).
+            # Mean waiting time in the egress queue (egress_wait): N*D/D/1 for
+            # the periodic SV class, Cobham non-preemptive priority otherwise.
             # This edge carries ONLY the waiting time; the serialization of the
             # frame onto the outgoing wire is the next edge (L5->L1 or trunk cable).
             if 0 < rho < 1.0:
-                delay_s = 0.5 * (l_avg / cap) * rho / (1 - rho)
-                w_queue = delay_s / T_MAX
+                w_queue = egress_wait(stats, k, cap) / T_MAX
             elif rho >= 1.0:
                 w_queue = 1.0  # Queue saturated -- delay exceeds T_MAX
 
@@ -672,6 +756,95 @@ def _serialization_link_capacity(a: str, b: str, scenario: str) -> float | None:
     return None
 
 
+def _device_sv_streams(D: dict) -> dict[str, int]:
+    """Number of periodic SV streams (frames per sample, multicast counted once)
+    published by each device."""
+    n = {}
+    for vlan, df in D.items():
+        if get_vlan_id(vlan) in SV_VLAN_IDS:
+            for src in df.index[df.any(axis=1)]:
+                n[src] = n.get(src, 0) + 1
+    return n
+
+
+def _synchronized_burst_waits(
+    D: dict, sw_map: dict[str, str], scenario: str, resources: str = 'egress',
+) -> dict[tuple[str, str, str], float]:
+    """
+    Extra waiting time [s] of each burst GOOSE flow caused by the other frames
+    of the 50BF cascade that are released at the same instant.
+
+    A frame is one (VLAN, source) pair; multicast copies share it until the
+    egress port. At a shared resource a frame waits for every simultaneous
+    frame of higher priority and, in random order, for half of those of equal
+    priority (non-preemptive, strict priority).
+
+    ``resources`` selects where simultaneity is assumed:
+      'publisher' -- the publisher link only: the frames a device activates
+                     together are released exactly together (FIFO device link).
+      'egress'    -- publisher link + destination egress port (default): frames
+                     of different publishers triggered by the same event
+                     converge on the egress port of a common subscriber.
+      'network'   -- additionally the serial switch fabric and the trunk
+                     (upper bound: assumes perfect synchronism network-wide).
+
+    Returns {(vlan, src, dst): wait_s}.
+    """
+    frames = []   # (vlan, src, prio, bits, set(dst))
+    for vlan, df in D.items():
+        if not is_burst_vlan(vlan):
+            continue
+        prio = get_vlan_priority(vlan)
+        for src in df.index[df.any(axis=1)]:
+            dsts = set(df.columns[df.loc[src] > 0])
+            frames.append((vlan, src, prio, get_frame_specs(vlan, src=src)['size'] * 8, dsts))
+
+    def enters(fr, sw):
+        """True if frame ``fr`` is processed by the fabric of switch ``sw``."""
+        _, src, _, _, dsts = fr
+        return sw_map[src] == sw or any(sw_map[d] == sw for d in dsts)
+
+    def crosses(fr, sa, sb):
+        _, src, _, _, dsts = fr
+        return sw_map[src] == sa and any(sw_map[d] == sb for d in dsts)
+
+    def wait_among(me, members, service):
+        w = 0.0
+        for g in members:
+            if g is me:
+                continue
+            if g[2] > me[2]:
+                w += service(g)
+            elif g[2] == me[2]:
+                w += 0.5 * service(g)
+        return w
+
+    out = {}
+    for fr in frames:
+        vlan, src, prio, bits, dsts = fr
+        sw_s = sw_map[src]
+        base = wait_among(fr, [g for g in frames if g[1] == src],
+                          lambda g: g[3] / CAPACITY_DEFAULT)
+        if resources == 'network':
+            base += wait_among(fr, [g for g in frames if enters(g, sw_s)],
+                               lambda g: T_PROC_SWITCH)
+        for dst in dsts:
+            w = base
+            sw_d = sw_map[dst]
+            if resources == 'network' and sw_d != sw_s:
+                cap_t = trunk_capacity_for(scenario)
+                w += wait_among(fr, [g for g in frames if crosses(g, sw_s, sw_d)],
+                                lambda g: g[3] / cap_t)
+                w += wait_among(fr, [g for g in frames if enters(g, sw_d)],
+                                lambda g: T_PROC_SWITCH)
+            if resources in ('egress', 'network'):
+                cap_e = port_capacity(f'L5_OutPort_{dst}', scenario)
+                w += wait_among(fr, [g for g in frames if dst in g[4]],
+                                lambda g: g[3] / cap_e)
+            out[(vlan, src, dst)] = w
+    return out
+
+
 def compute_e2e_metrics(
     labels: list[str],
     W: np.ndarray,
@@ -681,6 +854,7 @@ def compute_e2e_metrics(
     scenario: str = 'base',
     window_s: float = OBS_WINDOW_S,
     D_window: dict | None = None,
+    synchronized_burst: bool = False,
 ) -> dict:
     """
     End-to-end latency and loss of every SV and GOOSE flow.
@@ -697,6 +871,12 @@ def compute_e2e_metrics(
     window, i.e. steady state) when given: a GOOSE burst lasts milliseconds
     and must not be treated as if it persisted for the whole window.
 
+    Publisher link: each device transmits its frames FIFO on its own link, so a
+    frame also waits for the device's periodic SV streams (N*D/D/1). When
+    ``synchronized_burst`` is True (burst snapshots), burst GOOSE frames also
+    wait for the other frames released at the same instant
+    (_synchronized_burst_waits).
+
     Returns scalar metrics in µs / %:
       E2E_Avg_{SV,GOOSE}_us, E2E_Max_{SV,GOOSE}_us,
       E2E_PLR_Avg_{SV,GOOSE}, E2E_PLR_Max_{SV,GOOSE}, E2E_{SV,GOOSE}_Compliance
@@ -709,6 +889,9 @@ def compute_e2e_metrics(
     port_rho = _port_cumulative_rho(D, sw_map, scenario)
     fluid_rho = (_port_cumulative_rho(D_window, sw_map, scenario)
                  if D_window is not None else port_rho)
+    dev_sv = _device_sv_streams(D)
+    s_dev_sv = SV_FRAME_BITS / CAPACITY_DEFAULT
+    burst_wait = _synchronized_burst_waits(D, sw_map, scenario) if synchronized_burst else {}
 
     for vlan, df in D.items():
         vid = get_vlan_id(vlan)
@@ -720,7 +903,12 @@ def compute_e2e_metrics(
         for (src, dst), bw in nonzero[nonzero > 0].items():
             path = flow_path(src, dst, vlan, sw_map)
             frame_bits = get_frame_specs(vlan, src=src)['size'] * 8
-            d_s, keep = 0.0, 1.0
+            # Publisher-link FIFO: an SV frame sees the device's other SV
+            # streams; any other frame arrives at a random time and sees all.
+            m = dev_sv.get(src, 0)
+            d_s = ndd1_mean_wait(m - 1 if cls == 'SV' else m, SV_PERIOD_S, s_dev_sv)
+            d_s += burst_wait.get((vlan, src, dst), 0.0)
+            keep = 1.0
             for a, b in zip(path, path[1:]):
                 i, j = idx[a], idx[b]
                 rho, cap = port_rho.get((b, prio), (0.0, 1.0))

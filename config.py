@@ -122,6 +122,15 @@ def get_vlan_id(vlan_name: str) -> int | None:
         return None
 
 
+def is_burst_vlan(vlan_name: str) -> bool:
+    """True for VLANs whose GOOSE retransmits in burst mode during the 50BF
+    cascade: per-bay trip/status VLANs (GOOSE_VLAN_IDS) and the BBP broadcast V5."""
+    if 'PTP' in vlan_name:
+        return False
+    vid = get_vlan_id(vlan_name)
+    return vid in GOOSE_VLAN_IDS if vid is not None else vlan_name.endswith('_V5')
+
+
 def get_frame_specs(vlan_name: str, src: str | None = None,
                     goose_freq: float = 1.0) -> dict:
     """
@@ -136,8 +145,8 @@ def get_frame_specs(vlan_name: str, src: str | None = None,
     if 'PTP' in vlan_name:
         return TRAFFIC_SPECS['PTP']
     vid = get_vlan_id(vlan_name)
-    if vid is None:  # V5: BBP global broadcast
-        return {'freq': 1, 'size': 179}
+    if vid is None:  # V5: BBP broadcast GOOSE (also bursts in the 50BF cascade)
+        return {'freq': goose_freq, 'size': 179}
     if vid in SV_VLAN_IDS:
         return TRAFFIC_SPECS['SV']
     if vid in (3, 4):   # line-protection trip GOOSE

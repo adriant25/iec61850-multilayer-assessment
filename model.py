@@ -168,8 +168,8 @@ def generate_demand_tensor(
         if target != 'GPS':
             D['L3_VLAN_PTP'].at['GPS', target] = bw_ptp
 
-    # V5 (BBP global): BBP distributes configuration / status to all bay devices
-    bw_v5 = get_mbps(179, 1)  # 179 B custom frame, 1 Hz
+    # V5 (BBP global): BBP broadcast GOOSE to all bay devices (bursts on 50BF)
+    bw_v5 = get_mbps(179, 1000.0 / delta_t if delta_t > 0 else 0.0)  # 179 B
     for n in range(1, n_bays + 1):
         for target in [f'PP1B{n}L', f'PP2B{n}L', f'MU1B{n}', f'MU2B{n}', 'SMC']:
             D['L3_VLAN_V5'].at['BBP', target] = bw_v5
@@ -234,8 +234,8 @@ def update_goose_demand(
     """
     Return an updated demand tensor with GOOSE VLANs recalculated for delta_t.
 
-    Only the burst VLANs (GOOSE_VLAN_IDS: trip V3/V4 and MU status V8–V13)
-    change between burst snapshots. All other VLANs are shared by reference
+    Only the burst VLANs (BBP broadcast V5 and GOOSE_VLAN_IDS: trip V3/V4 and
+    MU status V8–V13) change between burst snapshots. All other VLANs are shared by reference
     (shallow-copy of the dict) to avoid redundant DataFrame copies.
 
     Args:
@@ -250,13 +250,13 @@ def update_goose_demand(
 
     freq_goose = 1000.0 / delta_t if delta_t > 0 else 0.0
 
-    for n in range(1, n_bays + 1):
-        for vid in GOOSE_VLAN_IDS:
-            vlan = f'L3_VLAN_B{n}_V{vid}'
-            size = get_frame_specs(vlan)['size']
-            df = D_base[vlan].copy()
-            df[df > 0] = get_mbps(size, freq_goose)
-            D[vlan] = df
+    burst_vlans = ['L3_VLAN_V5'] + [f'L3_VLAN_B{n}_V{vid}'
+                                    for n in range(1, n_bays + 1) for vid in GOOSE_VLAN_IDS]
+    for vlan in burst_vlans:
+        size = get_frame_specs(vlan)['size']
+        df = D_base[vlan].copy()
+        df[df > 0] = get_mbps(size, freq_goose)
+        D[vlan] = df
 
     return D
 

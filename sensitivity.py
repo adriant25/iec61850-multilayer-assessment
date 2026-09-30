@@ -109,7 +109,7 @@ if __name__ == '__main__':
             if fail.empty:
                 last = d.iloc[-1]
                 lines.append(f'{streams} & {SCEN_LABEL[scenario]} & -- & '
-                             f'{last.Top_Port_Rho:.2f} ($N=10$) & {short(last.QDC_Top_Node)} (no saturation) \\\\')
+                             f'{last.Top_Port_Rho:.2f} ($N=10$) & -- \\\\')
             else:
                 f = fail.iloc[0]
                 lines.append(f'{streams} & {SCEN_LABEL[scenario]} & {int(f.N_Bays)} & '

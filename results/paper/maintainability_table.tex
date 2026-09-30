@@ -1,0 +1,24 @@
+\begin{table}[!t]
+\centering
+\caption{Graph-based maintainability ranking of the components for $N=10$ (BBP link at 1~Gbps, single LAN, MTTR~$=8$~h). $I_c$: share of the time-critical flows whose path uses the component; $S_c$: share of the expected flow downtime; $\partial T/\partial\mathrm{MTTR}$: added downtime per hour of repair time. For repeated bay components the largest value is shown.}
+\label{tab:maintainability}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{lcccc}
+\toprule
+Component & MTTF & $I_c$ & $S_c$ & $\partial T/\partial\mathrm{MTTR}$ \\
+ & (y) & (\%) & (\%) & (min/yr per h) \\
+\midrule
+SW1 & 50 & 62.5 & 29.1 & 0.7500 \\
+SW2 & 50 & 50.0 & 23.3 & 0.6000 \\
+BBP & 150 & 25.0 & 3.9 & 0.1000 \\
+BBP access link & 300 & 25.0 & 1.9 & 0.0500 \\
+Trunk SW1--SW2 & 300 & 12.5 & 1.0 & 0.0250 \\
+Merging unit (each) & 150 & 4.4 & 0.7 & 0.0175 \\
+Protection IED (each) & 150 & 4.4 & 0.7 & 0.0175 \\
+Access link of a bay device (each) & 300 & 4.4 & 0.3 & 0.0087 \\
+\midrule
+\multicolumn{5}{l}{Mean flow downtime: single LAN 20.6~min/yr (MTTR 8~h), 185~min/yr (72~h)} \\
+\multicolumn{5}{l}{\phantom{Mean flow downtime:} PRP 6.4~min/yr (8~h), 57.6~min/yr (72~h)} \\
+\bottomrule
+\end{tabular}}
+\end{table}

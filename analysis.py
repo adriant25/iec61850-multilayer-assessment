@@ -860,9 +860,13 @@ def compute_e2e_metrics(
     D_window: dict | None = None,
     synchronized_burst: bool = False,
     burst_vlans: set[str] | None = None,
+    return_flows: bool = False,
 ) -> dict:
     """
     End-to-end latency and loss of every SV and GOOSE flow.
+
+    With ``return_flows`` the output also holds 'flow_records', a list of
+    (class, vlan, src, dst, path, delay_s) for every time-critical flow.
 
     The latency of a flow is the sum of the edge delays along its path
     (serialization + processing + HOL + queuing + serialization ...), which is
@@ -910,6 +914,7 @@ def compute_e2e_metrics(
 
     queue_wait_at: dict[str, float] = {}   # node -> summed queuing wait of critical flows [s]
     flows = []                            # (path nodes, end-to-end delay [s])
+    records = []                          # (class, vlan, src, dst, path, delay [s])
 
     def add_wait(node, w):
         if w > 0:
@@ -956,6 +961,7 @@ def compute_e2e_metrics(
             delays[cls].append(d_s * 1e6)
             losses[cls].append((1.0 - keep) * 100)
             flows.append((path, d_s))
+            records.append((cls, vlan, src, dst, path, d_s))
             if cls == 'GOOSE' and (burst_vlans is None or vlan in burst_vlans):
                 event_goose.append(d_s * 1e6)
 
@@ -976,6 +982,8 @@ def compute_e2e_metrics(
         vf = {n: v / inv.sum() for n, v in vf.items()}
     out['qdc_dict'] = qdc          # queuing-delay centrality (popped by caller)
     out['flow_vuln_dict'] = vf     # flow vulnerability (popped by caller)
+    if return_flows:
+        out['flow_records'] = records
     top = max(qdc, key=qdc.get) if qdc else ''
     out['QDC_Top_Node'] = top
     out['QDC_Top_Share'] = qdc.get(top, 0.0)

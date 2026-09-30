@@ -59,7 +59,7 @@ if __name__ == '__main__':
     data = {key: stats(DES_RUNS[key]) for key, _ in COLUMNS}
     lines = [r'\begin{table*}[!t]', r'\centering',
              r'\caption{DES KPIs of SV and GOOSE traffic (all flows, 7~s run) for representative configurations; '
-             r'``1 Gbps'' denotes the trunk + BBP link upgrade.}',
+             r'the 1~Gbps columns correspond to the trunk + BBP link upgrade.}',
              r'\label{tab:kpi_summary}', r'\resizebox{\textwidth}{!}{',
              r'\begin{tabular}{ll' + 'c' * len(COLUMNS) + '}', r'\toprule',
              'Class & KPI & ' + ' & '.join(f'\\textbf{{{h}}}' for _, h in COLUMNS) + r' \\',

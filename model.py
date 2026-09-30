@@ -231,22 +231,38 @@ def generate_demand_tensor(
     return D
 
 
+def event_burst_vlans(n_bays: int, burst_bays: list[int] | None = None) -> list[str]:
+    """
+    VLANs that retransmit in burst mode during a 50BF event.
+
+    burst_bays = None -> every bay (worst case, as in the DES scenario: the event
+    is injected simultaneously in all bays). Otherwise only the listed bays
+    (trip V3/V4 and MU status V8-V13) burst, together with the BBP bus-trip
+    broadcast V5, which is always part of the cascade.
+    """
+    bays = range(1, n_bays + 1) if burst_bays is None else burst_bays
+    return ['L3_VLAN_V5'] + [f'L3_VLAN_B{n}_V{vid}' for n in bays for vid in GOOSE_VLAN_IDS]
+
+
 def update_goose_demand(
     D_base: dict[str, pd.DataFrame],
     n_bays: int,
     delta_t: float,
+    burst_bays: list[int] | None = None,
 ) -> dict[str, pd.DataFrame]:
     """
     Return an updated demand tensor with GOOSE VLANs recalculated for delta_t.
 
-    Only the burst VLANs (BBP broadcast V5 and GOOSE_VLAN_IDS: trip V3/V4 and
-    MU status V8–V13) change between burst snapshots. All other VLANs are shared by reference
+    Only the burst VLANs of the event (event_burst_vlans: BBP broadcast V5 and,
+    for the bays in ``burst_bays``, trip V3/V4 and MU status V8–V13) change
+    between burst snapshots. All other VLANs are shared by reference
     (shallow-copy of the dict) to avoid redundant DataFrame copies.
 
     Args:
-        D_base:  Base demand tensor at steady state (delta_t = 1000 ms).
-        n_bays:  Number of bays.
-        delta_t: Current GOOSE retransmission interval [ms].
+        D_base:     Base demand tensor at steady state (delta_t = 1000 ms).
+        n_bays:     Number of bays.
+        delta_t:    Current GOOSE retransmission interval [ms].
+        burst_bays: Bays involved in the event (None = all bays).
 
     Returns:
         Updated demand tensor D with fresh burst-VLAN DataFrames.
@@ -255,9 +271,7 @@ def update_goose_demand(
 
     freq_goose = 1000.0 / delta_t if delta_t > 0 else 0.0
 
-    burst_vlans = ['L3_VLAN_V5'] + [f'L3_VLAN_B{n}_V{vid}'
-                                    for n in range(1, n_bays + 1) for vid in GOOSE_VLAN_IDS]
-    for vlan in burst_vlans:
+    for vlan in event_burst_vlans(n_bays, burst_bays):
         size = get_frame_specs(vlan)['size']
         df = D_base[vlan].copy()
         df[df > 0] = get_mbps(size, freq_goose)

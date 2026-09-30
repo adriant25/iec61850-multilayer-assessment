@@ -769,6 +769,7 @@ def _device_sv_streams(D: dict) -> dict[str, int]:
 
 def _synchronized_burst_waits(
     D: dict, sw_map: dict[str, str], scenario: str, resources: str = 'egress',
+    burst_vlans: set[str] | None = None,
 ) -> dict[tuple[str, str, str], float]:
     """
     Extra waiting time [s] of each burst GOOSE flow caused by the other frames
@@ -788,11 +789,14 @@ def _synchronized_burst_waits(
       'network'   -- additionally the serial switch fabric and the trunk
                      (upper bound: assumes perfect synchronism network-wide).
 
+    ``burst_vlans`` restricts the released frames to the VLANs of the event
+    (None = every burst-capable VLAN, i.e. an event in all bays).
+
     Returns {(vlan, src, dst): wait_s}.
     """
     frames = []   # (vlan, src, prio, bits, set(dst))
     for vlan, df in D.items():
-        if not is_burst_vlan(vlan):
+        if not is_burst_vlan(vlan) or (burst_vlans is not None and vlan not in burst_vlans):
             continue
         prio = get_vlan_priority(vlan)
         for src in df.index[df.any(axis=1)]:
@@ -855,6 +859,7 @@ def compute_e2e_metrics(
     window_s: float = OBS_WINDOW_S,
     D_window: dict | None = None,
     synchronized_burst: bool = False,
+    burst_vlans: set[str] | None = None,
 ) -> dict:
     """
     End-to-end latency and loss of every SV and GOOSE flow.
@@ -899,7 +904,9 @@ def compute_e2e_metrics(
                  if D_window is not None else port_rho)
     dev_sv = _device_sv_streams(D)
     s_dev_sv = SV_FRAME_BITS / CAPACITY_DEFAULT
-    burst_wait = _synchronized_burst_waits(D, sw_map, scenario) if synchronized_burst else {}
+    burst_wait = (_synchronized_burst_waits(D, sw_map, scenario, burst_vlans=burst_vlans)
+                  if synchronized_burst else {})
+    event_goose = []   # delays [us] of GOOSE flows that belong to the event
 
     queue_wait_at: dict[str, float] = {}   # node -> summed queuing wait of critical flows [s]
     flows = []                            # (path nodes, end-to-end delay [s])
@@ -949,8 +956,13 @@ def compute_e2e_metrics(
             delays[cls].append(d_s * 1e6)
             losses[cls].append((1.0 - keep) * 100)
             flows.append((path, d_s))
+            if cls == 'GOOSE' and (burst_vlans is None or vlan in burst_vlans):
+                event_goose.append(d_s * 1e6)
 
     out = {}
+    ev = np.array(event_goose)
+    out['E2E_Avg_GOOSE_Event_us'] = float(ev.mean()) if ev.size else 0.0
+    out['E2E_Max_GOOSE_Event_us'] = float(ev.max()) if ev.size else 0.0
     # Flow-constrained indicators over all time-critical (SV + GOOSE) flows
     inv = np.array([1.0 / (d * 1e3) for _, d in flows]) if flows else np.array([])
     out['Flow_Efficiency'] = float(inv.mean()) if inv.size else 0.0      # ms^-1

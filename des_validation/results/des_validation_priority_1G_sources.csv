@@ -1,0 +1,9 @@
+Case,rho,Samples,DES_wait_us,Theory_wait_us,Error_pct
+C_priority_high,0.3000,2897,1.9181,1.9648,-2.3773
+C_priority_low,0.3000,6699,2.7842,2.8069,-0.8078
+C_priority_high,0.5000,4715,3.3662,3.5059,-3.9852
+C_priority_low,0.5000,11275,6.9405,7.0118,-1.0164
+C_priority_high,0.7000,6779,5.2784,5.2810,-0.0501
+C_priority_low,0.7000,15722,18.7091,17.6034,6.2816
+C_priority_high,0.8500,8185,6.6514,6.8000,-2.1855
+C_priority_low,0.8500,18880,49.0040,45.3333,8.0970

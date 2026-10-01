@@ -1,0 +1,22 @@
+\begin{table}[!t]
+\centering
+\caption{Congestion threshold map: rate-weighted flow betweenness per bay and critical size $N^*_v$ of each port whose load grows with $N$, in steady state and if the burst-peak load of a one-bay or an all-bay event were sustained. The smallest $N^*_v$ locates the bottleneck; the next ones give the order in which ports saturate.}
+\label{tab:thresholds}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{llcccc}
+\toprule
+SV streams to BBP, & Port & $\Delta B_F$ per bay & \multicolumn{3}{c}{$N^*_v$} \\
+\cmidrule(lr){4-6}
+links & & (Mbps) & Steady & One-bay peak & All-bay peak \\
+\midrule
+2, 100 Mbps & Egress BBP & 11.45 & 8.74 & 8.68 & 8.25 \\
+ & Trunk SW2$\to$SW1 & 5.73 & 16.98 & 16.86 & 16.00 \\
+\midrule
+4, 100 Mbps & Egress BBP & 22.89 & 4.37 & 4.34 & 4.24 \\
+ & Trunk SW2$\to$SW1 & 11.45 & 8.25 & 8.20 & 8.00 \\
+\midrule
+4, BBP link 1 Gbps & Trunk SW2$\to$SW1 & 11.45 & 8.25 & 8.20 & 8.00 \\
+ & Egress BBP & 22.89 & 43.69 & 43.66 & 42.43 \\
+\bottomrule
+\end{tabular}}
+\end{table}

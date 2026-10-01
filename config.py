@@ -31,9 +31,15 @@ FABRIC_CAPACITY: float = 68000.0  # Mbps
 # Must match the DES reference (Simulador/main.py: switch_processing_time = 2e-6).
 T_PROC_SWITCH: float = 2e-6  # 2 µs in seconds
 
+# Every Ethernet frame occupies the link for its length plus 20 B of physical
+# overhead: preamble + start-of-frame delimiter (8 B) and inter-frame gap (12 B).
+# All sizes below are frame sizes; the serialization and the offered load use
+# the on-wire size = frame + ETH_WIRE_OVERHEAD.
+ETH_WIRE_OVERHEAD: int = 20
+
 # M/M/1/K buffer capacity expressed in packets.
-# Buffer size = 4,000,000 B (same as the DES port_buffer_size); packet size = 149 B (SV frame).
-K_BUFFER: int = int(np.floor(4_000_000 / 149))  # = 26,845 packets
+# Buffer size = 4,000,000 B (same as the DES port_buffer_size); packet = SV frame on the wire.
+K_BUFFER: int = int(np.floor(4_000_000 / (149 + ETH_WIRE_OVERHEAD)))  # = 23,668 packets
 
 # Output-port buffer [bytes] and observation window [s] used by the fluid
 # overload model of saturated ports (same buffer and duration as the DES runs).
@@ -60,9 +66,10 @@ GOOSE_VLAN_IDS: tuple = (3, 4, 8, 9, 10, 11, 12, 13)
 # TRAFFIC SPECIFICATIONS PER PROTOCOL
 # =============================================================================
 
-# Each entry holds the steady-state transmission frequency (Hz) and
-# Ethernet frame size (bytes, including header) of each traffic class.
-TRAFFIC_SPECS: dict = {
+# Each entry holds the steady-state transmission frequency (Hz) and the size
+# on the wire (bytes): Ethernet frame (header, VLAN tag, payload, FCS) plus the
+# 20 B preamble/SFD and inter-frame gap.
+_FRAME_BYTES: dict = {
     "PTP":    {"freq": 3,    "size": 80},   # IEEE 1588 Sync/Follow-Up
     "SV":     {"freq": 4800, "size": 149},  # IEC 61869-9 Sampled Values (80 smp/cycle @ 60 Hz)
     "GOOSE":  {"freq": 1,    "size": 187},  # IEC 61850-8-1 keep-alive (burst modelled separately)
@@ -70,6 +77,9 @@ TRAFFIC_SPECS: dict = {
     "SMC":    {"freq": 1,    "size": 211},  # Station Monitor Controller request
     "MU_RES": {"freq": 1,    "size": 340},  # Merging Unit response
 }
+TRAFFIC_SPECS: dict = {k: {"freq": v["freq"], "size": v["size"] + ETH_WIRE_OVERHEAD}
+                       for k, v in _FRAME_BYTES.items()}
+V5_WIRE_BYTES: int = 179 + ETH_WIRE_OVERHEAD   # BBP bus-trip broadcast GOOSE
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -151,7 +161,7 @@ def get_frame_specs(vlan_name: str, src: str | None = None,
         return TRAFFIC_SPECS['PTP']
     vid = get_vlan_id(vlan_name)
     if vid is None:  # V5: BBP broadcast GOOSE (also bursts in the 50BF cascade)
-        return {'freq': goose_freq, 'size': 179}
+        return {'freq': goose_freq, 'size': V5_WIRE_BYTES}
     if vid in SV_VLAN_IDS:
         return TRAFFIC_SPECS['SV']
     if vid in (3, 4):   # line-protection trip GOOSE

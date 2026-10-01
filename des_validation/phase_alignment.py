@@ -23,6 +23,7 @@ import pandas as pd
 import validate_des as v
 
 PERIOD = 1 / 4800
+KS = globals().get("KS_OVERRIDE", (8, 12, 16))   # streams
 OUT = v.OUT
 
 
@@ -38,7 +39,7 @@ def run(k, delta, rng, t_sim=0.003):
 if __name__ == '__main__':
     rng = np.random.default_rng(21)
     rows = []
-    for k in (8, 12, 16):
+    for k in KS:
         for delta in (0.0, 0.02, 0.05, 0.1, 0.25, 0.5, 1.0):
             reps = 1 if delta == 0 else 40
             res = np.array([run(k, delta, rng) for _ in range(reps)])

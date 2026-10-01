@@ -47,7 +47,7 @@ def t1_sweep():
                 ys.append(rho_port(D, sw, 'base'))
             b, a = np.polyfit(xs, ys, 1)
             slopes[scope] = (1 - a) / b
-        for n in (8, 10):
+        for n in (7, 10):   # 7 = last stable size with on-wire frames
             devs, sw = generate_devices(n)
             D0 = generate_demand_tensor(n, devs, 1000.0)
             labels, A = build_topology(n, devs, D0, sw)

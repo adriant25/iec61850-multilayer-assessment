@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 import config
-from config import (TRAFFIC_SPECS, GOOSE_VLAN_IDS, get_vlan_priority, get_mbps,
+from config import (TRAFFIC_SPECS, GOOSE_VLAN_IDS, V5_WIRE_BYTES, get_vlan_priority, get_mbps,
                     get_frame_specs)
 
 # =============================================================================
@@ -170,7 +170,7 @@ def generate_demand_tensor(
             D['L3_VLAN_PTP'].at['GPS', target] = bw_ptp
 
     # V5 (BBP global): BBP broadcast GOOSE to all bay devices (bursts on 50BF)
-    bw_v5 = get_mbps(179, 1000.0 / delta_t if delta_t > 0 else 0.0)  # 179 B
+    bw_v5 = get_mbps(V5_WIRE_BYTES, 1000.0 / delta_t if delta_t > 0 else 0.0)  # 179 B frame + 20 B
     for n in range(1, n_bays + 1):
         for target in [f'PP1B{n}L', f'PP2B{n}L', f'MU1B{n}', f'MU2B{n}', 'SMC']:
             D['L3_VLAN_V5'].at['BBP', target] = bw_v5

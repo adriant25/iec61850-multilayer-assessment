@@ -71,13 +71,38 @@ def summarize(path: str) -> dict:
     }
 
 
+# Independent replications (different seeds, current simulator version) of the
+# two configurations next to the stability boundary; the reference value is the
+# mean over replications (see des_replicates.py for the confidence intervals).
+DES_REPLICATES = {
+    (8, 'base'): [os.path.join(_case(8), 'Replicas', f'seed_{k}', 'KPIs_PB.xlsx')
+                  for k in (1, 2, 3, 4, 5, 42)],
+    (9, 'base'): [DES_RUNS[(9, 'base')]] +
+                 [os.path.join(_case(9), '100_fix_replicas', f'seed_{k}', 'KPIs_PB.xlsx')
+                  for k in (1, 2, 3, 4, 5)],
+}
+
+
+def summarize_replicates(paths: list[str]) -> dict:
+    runs = pd.DataFrame([summarize(p) for p in paths])
+    out = runs.mean().to_dict()
+    out.update({c: runs[c].max() for c in runs if c.endswith('_max_us')})
+    out['Replications'] = len(paths)
+    return out
+
+
 if __name__ == '__main__':
     rows = []
     for (n, scenario), path in sorted(DES_RUNS.items()):
+        reps = [p for p in DES_REPLICATES.get((n, scenario), []) if os.path.exists(p)]
+        if reps:
+            rows.append({'N_Bays': n, 'Scenario': scenario, **summarize_replicates(reps),
+                         'Source': f'mean of {len(reps)} replications'})
+            continue
         if not os.path.exists(path):
             print(f'missing: N={n} {scenario}: {path}')
             continue
-        rows.append({'N_Bays': n, 'Scenario': scenario, **summarize(path),
+        rows.append({'N_Bays': n, 'Scenario': scenario, **summarize(path), 'Replications': 1,
                      'Source': os.path.relpath(path, SIM)})
     df = pd.DataFrame(rows)
     df.to_csv('des_reference.csv', index=False, float_format='%.4f')

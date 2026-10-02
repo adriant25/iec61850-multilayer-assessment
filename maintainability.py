@@ -34,6 +34,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import plot_style  # noqa: E402,F401  (common style of the paper figures)
 
 from config import T_MAX
 from model import generate_devices, generate_demand_tensor, update_goose_demand, build_topology
@@ -204,10 +205,10 @@ if __name__ == '__main__':
                          'savefig.dpi': 300, 'savefig.bbox': 'tight'})
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.16, 2.5), gridspec_kw={'wspace': 0.3})
     b = df[df.Scenario == 'bbp_only'].sort_values('N_Bays')
-    for tag, color, mk, ls, lab in (('Single_8h', '#0072B2', 'o', '-', 'Single LAN, MTTR 8 h'),
-                                    ('Single_72h', '#0072B2', 's', '--', 'Single LAN, MTTR 72 h'),
-                                    ('PRP_8h', '#009E73', '^', '-', 'PRP, MTTR 8 h'),
-                                    ('PRP_72h', '#009E73', 'D', '--', 'PRP, MTTR 72 h')):
+    for tag, color, mk, ls, lab in (('Single_8h', '#2a78d6', 'o', '-', 'Single LAN, MTTR 8 h'),
+                                    ('Single_72h', '#2a78d6', 's', '--', 'Single LAN, MTTR 72 h'),
+                                    ('PRP_8h', '#1baf7a', '^', '-', 'PRP, MTTR 8 h'),
+                                    ('PRP_72h', '#1baf7a', 'D', '--', 'PRP, MTTR 72 h')):
         ax1.plot(b.N_Bays, b[f'Down_min_yr_{tag}'], color=color, marker=mk, ls=ls, label=lab)
     ax1.set_yscale('log')
     ax1.set_ylabel('Mean flow downtime (min/yr)')
@@ -215,13 +216,13 @@ if __name__ == '__main__':
     ax1.legend(frameon=False, ncol=2, loc='upper center')
     ax1.set_ylim(3, 1500)
     c = dc[dc.Scenario == 'bbp_only']
-    for comp, color, mk, ls in (('SW1', '#D55E00', 'o', '-'), ('SW2', '#CC79A7', 's', '-.'),
-                                ('Trunk SW1--SW2', '#E69F00', 'v', ':'),
-                                ('BBP access link', '#0072B2', 'D', '--')):
+    for comp, color, mk, ls in (('SW1', '#eb6834', 'o', '-'), ('SW2', '#e87ba4', 's', '-.'),
+                                ('Trunk SW1--SW2', '#eda100', 'v', ':'),
+                                ('BBP access link', '#2a78d6', 'D', '--')):
         s = c[c.Component == comp].set_index('N_Bays').Importance.reindex(range(1, 11))
         ax2.plot(s.index, 100 * s, color=color, marker=mk, ls=ls,
                  label={'Trunk SW1--SW2': 'Trunk', 'BBP access link': 'BBP link'}.get(comp, comp))
-    ax2.plot(b.N_Bays, 0 * b.N_Bays, color='#009E73', marker='^', ls='--',
+    ax2.plot(b.N_Bays, 0 * b.N_Bays, color='#1baf7a', marker='^', ls='--',
              label='PRP: any')
     ax2.set_ylabel('Flows interrupted (%)')
     ax2.set_ylim(-5, 150)
@@ -234,6 +235,7 @@ if __name__ == '__main__':
         ax.set_xlabel('Number of bays $N$')
         ax.grid(True, ls='--', lw=0.35, alpha=0.5)
     fig.savefig(os.path.join(OUT, 'fig_maintainability.png'))
+    fig.savefig(os.path.join(OUT, 'fig_maintainability.pdf'))
     print(df[['N_Bays', 'Scenario', 'Timing_OK', 'A_F_Single_8h', 'A_F_PRP_8h',
               'Down_min_yr_Single_8h', 'Down_min_yr_PRP_8h', 'Exposure', 'Exposure_Node']]
           .to_string())

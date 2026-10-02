@@ -92,13 +92,13 @@ plt.rcParams.update({'font.family': 'serif', 'font.serif': ['Times New Roman', '
                      'font.size': 7, 'mathtext.fontset': 'stix',
                      'savefig.dpi': 600, 'savefig.bbox': 'tight', 'savefig.pad_inches': 0.02})
 fig, ax = plt.subplots(figsize=(7.16, 3.55))
-ax.set_xlim(-3.6, W + 0.6)
+ax.set_xlim(-3.6, W + 1.75)
 ax.set_ylim(-0.55, 4.45)
 ax.axis('off')
 
 # layer bands and names
-names = {1: 'L1  Equipment', 2: 'L2  Ingress ports', 3: 'L3  VLANs (SW1)',
-         4: 'L4  Priority queues', 5: 'L5  Egress ports'}
+names = {1: r'$\mathcal{L}_1$ Equipment', 2: r'$\mathcal{L}_2$ Ingress ports', 3: r'$\mathcal{L}_3$ VLANs (SW1)',
+         4: r'$\mathcal{L}_4$ Priority queues', 5: r'$\mathcal{L}_5$ Egress ports'}
 for k, y in Y.items():
     ax.add_patch(FancyBboxPatch((-0.55, y - 0.27), W + 1.1, 0.54,
                                 boxstyle='round,pad=0,rounding_size=0.12',
@@ -150,6 +150,12 @@ for n in rows[3]:
 for n in rows[4]:
     ax.plot(*pos[n], 'o', ms=12.5, mfc='white', mec=INK, mew=0.9, zorder=4)
     ax.text(*pos[n], 'P' + n[-1], ha='center', va='center', fontsize=6.4, color=INK, zorder=5)
+
+# the six delivery edges L5 -> L1 are summarised by one marked arrow in the margin
+ax.add_patch(FancyArrowPatch((W + 0.95, -0.05), (W + 0.95, 4.05), arrowstyle='-|>,head_length=3,head_width=1.5',
+                             color=GREY, lw=0.9, ls=(0, (1, 1.5)), zorder=2))
+ax.text(W + 1.2, 2.0, r'Delivery $\mathcal{L}_5\to\mathcal{L}_1$ (6 edges)', rotation=90, ha='left', va='center',
+        fontsize=6.4, color=INK)
 
 # legend (traffic class of the VLAN edges; grey = device and port edges)
 handles = [Line2D([], [], color=c, ls=st, lw=1.3, label=k) for k, (c, st) in CLASSES.items()]

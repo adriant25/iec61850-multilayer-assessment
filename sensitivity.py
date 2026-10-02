@@ -24,6 +24,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import plot_style  # noqa: E402,F401  (common style of the paper figures)
 
 import config
 from config import T_MAX
@@ -127,8 +128,8 @@ if __name__ == '__main__':
                          'font.size': 8, 'legend.fontsize': 6.5, 'lines.markersize': 4,
                          'savefig.dpi': 300, 'savefig.bbox': 'tight'})
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.16, 2.5), gridspec_kw={'wspace': 0.28})
-    cases = [(2, 'base', '#0072B2', 'o', '-'), (2, 'bbp_only', '#E69F00', '^', '-.'),
-             (4, 'base', '#CC79A7', 's', ':'), (4, 'bbp_only', '#009E73', 'D', '--')]
+    cases = [(2, 'base', '#2a78d6', 'o', '-'), (2, 'bbp_only', '#eda100', '^', '-.'),
+             (4, 'base', '#e87ba4', 's', ':'), (4, 'bbp_only', '#1baf7a', 'D', '--')]
     for streams, scenario, color, mk, ls in cases:
         d = df[(df.BBP_Streams_per_Bay == streams) & (df.Scenario == scenario)].sort_values('N_Bays')
         # QDC share of the port that becomes the bottleneck of this configuration
@@ -156,4 +157,5 @@ if __name__ == '__main__':
     fig.legend(h1 + h2, l1 + l2, loc='upper center', ncol=2, frameon=False,
                bbox_to_anchor=(0.5, -0.02))
     fig.savefig(os.path.join(OUT, 'fig_flow_indicators.png'))
+    fig.savefig(os.path.join(OUT, 'fig_flow_indicators.pdf'))
     print('figure written')

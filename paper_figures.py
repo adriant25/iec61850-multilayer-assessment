@@ -17,6 +17,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import plot_style  # noqa: E402,F401  (common style of the paper figures)
 
 from config import T_MAX, TRAFFIC_SPECS, CAPACITY_DEFAULT
 
@@ -34,9 +35,9 @@ plt.rcParams.update({
 
 # Color-blind-safe palette (Wong 2011)
 STYLE = {
-    'base':     dict(color='#0072B2', marker='o', ls='-',  label='Base (all links 100 Mbps)'),
-    'bbp_only': dict(color='#E69F00', marker='^', ls='-.', label='BBP link 1 Gbps'),
-    'upgraded': dict(color='#009E73', marker='s', ls='--', label='Trunk + BBP link 1 Gbps'),
+    'base':     dict(color='#2a78d6', marker='o', ls='-',  label='Base (all links 100 Mbps)'),
+    'bbp_only': dict(color='#eda100', marker='^', ls='-.', label='BBP link 1 Gbps'),
+    'upgraded': dict(color='#1baf7a', marker='s', ls='--', label='Trunk + BBP link 1 Gbps'),
 }
 ORDER = ['base', 'bbp_only', 'upgraded']
 
@@ -90,6 +91,7 @@ handles, labels = axes[0].get_legend_handles_labels()
 fig.legend(handles, labels, loc='upper center', ncol=3, frameon=False,
            bbox_to_anchor=(0.5, 1.08))
 fig.savefig(os.path.join(OUT, 'fig_structural.png'))
+fig.savefig(os.path.join(OUT, 'fig_structural.pdf'))
 plt.close(fig)
 
 # ---------------------------------------------------------------------------
@@ -111,7 +113,7 @@ for sc, mk in (('base', 'o'), ('upgraded', 's')):
              mec=st['color'], mew=1.0, ms=5, label=f"DES: {st['label']}")
     ax2.plot(d.N_Bays, d.SV_PLR_pct, ls='none', marker=mk, mfc='white',
              mec=st['color'], mew=1.0, ms=5, label=f"DES: {st['label']}")
-ax1.axhline(T_MAX * 1e6, color='#D55E00', lw=1.0, ls=':', label='IEC 61850 limit (3 ms)')
+ax1.axhline(T_MAX * 1e6, color='#eb6834', lw=1.0, ls=':', label='IEC 61850 limit (3 ms)')
 for ax in (ax1, ax2):
     mark_n_star(ax)
     ax.set_xticks(range(1, 11))
@@ -125,6 +127,7 @@ ax2.set_ylabel('Mean SV packet loss ratio (%)')
 ax2.set_title('(b) SV packet loss (7 s window)')
 ax1.legend(loc='upper left', fontsize=6, frameon=True)
 fig.savefig(os.path.join(OUT, 'fig_sv_validation.png'))
+fig.savefig(os.path.join(OUT, 'fig_sv_validation.pdf'))
 plt.close(fig)
 
 # ---------------------------------------------------------------------------
@@ -149,7 +152,7 @@ top_v = (vul[vul.Scenario == 'base'].sort_values('Vulnerability_Index', ascendin
          .Node_Label.head(6).tolist())
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.16, 2.4), gridspec_kw={'wspace': 0.55})
-ax1.barh([short(l) for l in bc.index[::-1]], bc.values[::-1], color='#0072B2', edgecolor='black', lw=0.4)
+ax1.barh([short(l) for l in bc.index[::-1]], bc.values[::-1], color='#2a78d6', edgecolor='black', lw=0.4)
 ax1.set_xlabel('Normalized betweenness centrality')
 ax1.set_title(f'(a) BC, $N={N_FOCUS}$, base, steady state')
 ax1.grid(True, axis='x')
@@ -167,6 +170,7 @@ ax2.set_title(f'(b) Vulnerability, $N={N_FOCUS}$')
 ax2.grid(True, axis='x')
 ax2.legend(loc='lower right', fontsize=6, frameon=True)
 fig.savefig(os.path.join(OUT, 'fig_critical_nodes.png'))
+fig.savefig(os.path.join(OUT, 'fig_critical_nodes.pdf'))
 plt.close(fig)
 
 # ---------------------------------------------------------------------------
@@ -188,10 +192,10 @@ tr = pd.read_csv(TRACE_N8)
 tr = tr[tr.source == TRACE_SRC].sort_values('t_gen')
 t = tr.t_gen.to_numpy()
 dly = (tr.t_arrival - tr.t_gen).to_numpy() * 1e3
-ax.plot(t[::20], dly[::20], color='#009E73', lw=1.6, alpha=0.6, label='DES, $N=8$')
+ax.plot(t[::20], dly[::20], color='#1baf7a', lw=1.6, alpha=0.6, label='DES, $N=8$')
 tt = np.linspace(0, 7, 200)
 cap_ms = 8 * PORT_BUFFER_BYTES / CAPACITY_DEFAULT * 1e3
-for n, color in ((8, '#009E73'), (9, '#0072B2'), (10, '#D55E00')):
+for n, color in ((8, '#1baf7a'), (9, '#2a78d6'), (10, '#eb6834')):
     rho = n * SV_BPS_PER_BAY / CAPACITY_DEFAULT
     ax.plot(tt, np.minimum((rho - 1) * tt * 1e3, cap_ms), color=color, lw=1.0, ls='--',
             label=f'Fluid model, $N={n}$ ($\\rho={rho:.3f}$)')
@@ -204,6 +208,7 @@ ax.set_xlim(0, 7)
 ax.grid(True)
 ax.legend(loc='lower right', bbox_to_anchor=(1.0, 0.04), fontsize=6, frameon=True)
 fig.savefig(os.path.join(OUT, 'fig_des_timeline.png'))
+fig.savefig(os.path.join(OUT, 'fig_des_timeline.pdf'))
 plt.close(fig)
 
 print(f'N* = {N_STAR:.3f}; figures written to {OUT}')

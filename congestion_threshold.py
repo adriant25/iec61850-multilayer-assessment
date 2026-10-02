@@ -30,6 +30,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import plot_style  # noqa: E402,F401  (common style of the paper figures)
 
 import config
 from config import GOOSE_VLAN_IDS, get_vlan_id
@@ -170,7 +171,7 @@ if __name__ == '__main__':
                          'font.size': 8, 'legend.fontsize': 6.5, 'lines.markersize': 3.5,
                          'savefig.dpi': 300, 'savefig.bbox': 'tight'})
     fig, axes = plt.subplots(1, 2, figsize=(7.16, 2.5), gridspec_kw={'wspace': 0.25}, sharey=True)
-    colors = {'L5_OutPort_BBP': '#D55E00', 'L4_Trunk_SW2_to_SW1': '#0072B2'}
+    colors = {'L5_OutPort_BBP': '#eb6834', 'L4_Trunk_SW2_to_SW1': '#2a78d6'}
     for ax, key, title in ((axes[0], (2, 'base'), '(a) 2 SV streams per bay, 100 Mbps'),
                            (axes[1], (4, 'bbp_only'), '(b) 4 SV streams per bay, BBP link 1 Gbps')):
         d = sw_df[(sw_df.Streams == key[0]) & (sw_df.Scenario == key[1])]
@@ -194,7 +195,9 @@ if __name__ == '__main__':
         ax.set_title(title)
         ax.grid(True, ls='--', lw=0.35, alpha=0.5)
     axes[0].set_ylabel(r'Utilization $\rho_v = B_F(v)/C_v$')
-    axes[0].legend(frameon=False, loc='upper left')
-    axes[1].legend(frameon=False, loc='upper left')
+    # one legend for both panels, above them, so no data or N* line is hidden
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, 0.98), ncol=3, frameon=False)
     fig.savefig(os.path.join(OUT, 'fig_threshold_map.png'))
+    fig.savefig(os.path.join(OUT, 'fig_threshold_map.pdf'))
     print('figure written')

@@ -21,6 +21,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import plot_style  # noqa: E402,F401  (common style of the paper figures)
 
 pan = pd.read_csv(os.path.join('results', 'nc_panco.csv'))
 pan['best_us'] = pan[['TFA_us', 'SFA_us', 'PLP_us']].min(axis=1)
@@ -62,17 +63,17 @@ plt.rcParams.update({'font.family': 'serif', 'font.serif': ['Times New Roman', '
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.16, 2.6), gridspec_kw={'wspace': 0.3, 'width_ratios': [1.6, 1]})
 n = tab.index.values
 fin = np.isfinite(tab.NC_panco_us)
-ax1.semilogy(n[fin], tab.NC_panco_us[fin], 'v-', color='#D55E00', label='Network calculus bound (panco)')
-ax1.semilogy(n[fin], tab.NC_hop_by_hop_us[fin], 'v:', color='#D55E00', mfc='none', lw=0.9,
+ax1.semilogy(n[fin], tab.NC_panco_us[fin], 'v-', color='#eb6834', label='Network calculus bound (panco)')
+ax1.semilogy(n[fin], tab.NC_hop_by_hop_us[fin], 'v:', color='#eb6834', mfc='none', lw=0.9,
              label='Network calculus, hop-by-hop TFA')
 ax1.semilogy(n, tab.DES_max_us, 's-', color='0.35', label='DES, largest frame delay')
-ax1.semilogy(n, tab.DES_mean_us, 'o-', color='#0072B2', mfc='none', label='DES, mean')
-ax1.semilogy(n, tab.Proposed_mean_us, 'x--', color='#009E73', label='Proposed model, mean')
+ax1.semilogy(n, tab.DES_mean_us, 'o-', color='#2a78d6', mfc='none', label='DES, mean')
+ax1.semilogy(n, tab.Proposed_mean_us, 'x--', color='#1baf7a', label='Proposed model, mean')
 for y, lab in ((600, 'network budget 0.6 ms'), (3000, 'IEC 61850 limit 3 ms')):
     ax1.axhline(y, color='k', lw=0.7, ls=':')
     ax1.text(0.7, y * 1.12, lab, fontsize=6.5)
 ax1.annotate(r'NC bound $\to\infty$ for $N\geq8$ ($\rho\geq1$)', (4.0, 1.1e4), fontsize=6.5,
-             color='#D55E00', ha='center')
+             color='#eb6834', ha='center')
 ax1.set_xticks(range(1, 11))
 ax1.set_xlabel('Number of bays $N$')
 ax1.set_ylabel(r'SV delay towards the BBP ($\mu$s)')
@@ -81,9 +82,9 @@ ax1.legend(frameon=False, loc='upper left', fontsize=6)
 ax1.set_ylim(15, 1e6)
 
 ok = tab[fin]
-ax2.plot(ok.index, ok.NC_over_DES_max, 'v-', color='#D55E00', label='Base (100 Mbps)')
+ax2.plot(ok.index, ok.NC_over_DES_max, 'v-', color='#eb6834', label='Base (100 Mbps)')
 up_ok = tab_up.dropna()
-ax2.plot(up_ok.index, up_ok.NC_over_DES_max, '^', color='#CC79A7', label='Trunk + BBP 1 Gbps')
+ax2.plot(up_ok.index, up_ok.NC_over_DES_max, '^', color='#e87ba4', label='Trunk + BBP 1 Gbps')
 ax2.set_xticks(range(1, 11))
 ax2.set_xlabel('Number of bays $N$')
 ax2.set_ylabel('NC bound (panco) / DES largest delay')
@@ -94,4 +95,5 @@ for ax in (ax1, ax2):
     ax.grid(True, ls='--', lw=0.35, alpha=0.5)
 os.makedirs(os.path.join('results', 'paper'), exist_ok=True)
 fig.savefig(os.path.join('results', 'paper', 'fig_benchmark.png'))
+fig.savefig(os.path.join('results', 'paper', 'fig_benchmark.pdf'))
 print('figure written')

@@ -49,7 +49,7 @@ Run from the repository root (each script documents its outputs):
 | `sensitivity.py` | Design sensitivity (two and four SV streams per bay) |
 | `event_scope.py`, `single_bay_des.py` | Effect of the protection event and its scope |
 | `congestion_threshold.py` | Congestion threshold map (rate-weighted flow betweenness) |
-| `robustness.py t1` / `cap` / `scale` | Robustness: GOOSE T1, link capacity, computational scaling |
+| `robustness.py t1` / `cap` / `scale`, `robustness_extra.py` | Robustness: GOOSE T1, link capacity, computational scaling, port buffer, fabric capacity |
 | `maintainability.py` | Availability and maintainability |
 | `nc_bound.py`, `nc_panco.py`, `benchmark_figure.py` | Baselines: network-calculus bounds (own hop-by-hop and panco) |
 | `extract_des_reference.py`, `des_replicates.py`, `compare_des.py`, `des_kpi_table.py` | Cross-validation against the DES |

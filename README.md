@@ -53,7 +53,7 @@ Run from the repository root (each script documents its outputs):
 | `maintainability.py` | Availability and maintainability |
 | `nc_bound.py`, `nc_panco.py`, `benchmark_figure.py` | Baselines: network-calculus bounds (own hop-by-hop and panco) |
 | `extract_des_reference.py`, `des_replicates.py`, `compare_des.py`, `des_kpi_table.py` | Cross-validation against the DES |
-| `paper_figures.py` | Figures of the paper (`results/paper/`) |
+| `paper_figures.py`, `fig_graph_layers.py` | Figures of the paper (`results/paper/`) |
 | `paper_numbers.py` | Every case-dependent number quoted in the text (`results/paper_numbers.txt`) |
 | `run_wire_analytic.sh` | Runs the analytical chain in order |
 

@@ -176,32 +176,32 @@ from analysis import fluid_overload  # noqa: E402
 from config import PORT_BUFFER_BYTES  # noqa: E402
 
 SIM = r"C:\Users\adria\OneDrive - Universidad de los andes\Uniandes\2025-1\Simulación"
-# Per-packet traces were exported only for the 9-bay 100 Mbps run (the folder
-# CASO10BAHIAS/Results100/Detailed_Plots holds 9-bay traces and is not used).
-# The SV path is not affected by the N=9 input-table errors (GOOSE only).
-TRACE_N9 = os.path.join(SIM, r'CASO9BAHIAS\100\Results\Detailed_Plots\Flow_Plots'
-                             r'\SV_MU1B2_5_BBP\delay_data_SV_MU1B2_5_BBP.xlsx')
+# Per-packet trace of the SV frames received by the BBP in the 8-bay base run
+# (on-wire frame sizes, seed 42), written by the run copy of the simulator:
+# columns source, flow_id, t_gen, t_arrival (s).
+TRACE_N8 = os.path.join(SIM, r'CASO8BAHIAS\Trace_wire\trace_BBP_SV.csv')
+TRACE_SRC = 'MU1B2'
 T_EVENT = 3.0
 fig, ax = plt.subplots(figsize=(3.5, 2.3))
-tr = pd.read_excel(TRACE_N9)
-idx = pd.to_numeric(tr['Packet_Index'].astype(str).str.extract(r'(\d+)')[0])
-t = idx / TRAFFIC_SPECS['SV']['freq']
-dly = pd.to_numeric(tr['Total_Delay_ms'], errors='coerce')
-ax.plot(t[::20], dly[::20], color='#0072B2', lw=1.6, alpha=0.6, label='DES, $N=9$')
+tr = pd.read_csv(TRACE_N8)
+tr = tr[tr.source == TRACE_SRC].sort_values('t_gen')
+t = tr.t_gen.to_numpy()
+dly = (tr.t_arrival - tr.t_gen).to_numpy() * 1e3
+ax.plot(t[::20], dly[::20], color='#009E73', lw=1.6, alpha=0.6, label='DES, $N=8$')
 tt = np.linspace(0, 7, 200)
 cap_ms = 8 * PORT_BUFFER_BYTES / CAPACITY_DEFAULT * 1e3
-for n, color in ((9, '#0072B2'), (10, '#D55E00')):
+for n, color in ((8, '#009E73'), (9, '#0072B2'), (10, '#D55E00')):
     rho = n * SV_BPS_PER_BAY / CAPACITY_DEFAULT
     ax.plot(tt, np.minimum((rho - 1) * tt * 1e3, cap_ms), color=color, lw=1.0, ls='--',
             label=f'Fluid model, $N={n}$ ($\\rho={rho:.3f}$)')
 ax.axvline(T_EVENT, color='0.3', lw=0.8, ls=':')
-ax.text(T_EVENT + 0.08, 20, '50BF event', fontsize=6.5, color='0.3')
+ax.text(T_EVENT + 0.08, 285, '50BF event', fontsize=6.5, color='0.3')
 ax.axhline(T_MAX * 1e3, color='0.5', lw=0.6)
 ax.set_xlabel('Simulation time (s)')
 ax.set_ylabel('SV delay MU1B2$\\to$BBP (ms)')
 ax.set_xlim(0, 7)
 ax.grid(True)
-ax.legend(loc='upper left', fontsize=6, frameon=True)
+ax.legend(loc='lower right', bbox_to_anchor=(1.0, 0.04), fontsize=6, frameon=True)
 fig.savefig(os.path.join(OUT, 'fig_des_timeline.png'))
 plt.close(fig)
 

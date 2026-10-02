@@ -54,7 +54,7 @@ ax1.semilogy(n, tab.Proposed_mean_us, 'x--', color='#009E73', label='Proposed mo
 for y, lab in ((600, 'network budget 0.6 ms'), (3000, 'IEC 61850 limit 3 ms')):
     ax1.axhline(y, color='k', lw=0.7, ls=':')
     ax1.text(0.7, y * 1.12, lab, fontsize=6.5)
-ax1.annotate(r'NC bound $\to\infty$ for $N\geq9$ ($\rho\geq1$)', (6.2, 1.1e4), fontsize=6.5,
+ax1.annotate(r'NC bound $\to\infty$ for $N\geq8$ ($\rho\geq1$)', (4.0, 1.1e4), fontsize=6.5,
              color='#D55E00', ha='center')
 ax1.set_xticks(range(1, 11))
 ax1.set_xlabel('Number of bays $N$')

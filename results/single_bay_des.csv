@@ -1,2 +1,2 @@
 Analytic_GOOSE_steady_us,Analytic_GOOSE_burst_us,Analytic_GOOSE_window_us,DES_GOOSE_mean_us,DES_GOOSE_ci95_us,DES_GOOSE_max_us,Analytic_SV_steady_us,DES_SV_mean_us,Replications,GOOSE_diff_pct
-36.001,61.437,51.287,45.328,0.639,107.443,35.016,36.118,3,13.145
+40.060,68.404,57.093,49.999,1.782,125.093,39.524,40.913,3,14.189

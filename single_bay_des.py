@@ -2,10 +2,10 @@
 """
 single_bay_des.py -- Single-bay 50BF event: analytical model versus DES.
 
-DES runs (N = 8, base, 7 s, event at 3 s only in bay 8, seeds 42, 1, 2) are
-stored in CASO8BAHIAS/SingleBay8/seed_<k>/KPIs_PB.xlsx. The compared GOOSE
+DES runs (N = 7, base, 7 s, event at 3 s only in bay 7, seeds 42, 1, 2; on-wire
+frame sizes) are stored in CASO7BAHIAS/SingleBay7_wire/seed_<k>/KPIs_PB.xlsx. The compared GOOSE
 flows are the trip and breaker-status flows of the failed bay (publishers
-PP1B8L, PP2B8L, MU1B8, MU2B8); the analytical value is the window average
+PP1B7L, PP2B7L, MU1B7, MU2B7); the analytical value is the window average
 f_b * D_burst + (1 - f_b) * D_steady used for the all-bay comparison.
 
 Output: results/single_bay_des.csv
@@ -22,7 +22,7 @@ from compare_des import F_BURST
 from model import generate_devices, generate_demand_tensor, update_goose_demand, build_topology, event_burst_vlans
 from analysis import compute_weights, compute_e2e_metrics
 
-N, BAY = 8, 8
+N, BAY = 7, 7
 PUB = {f'PP1B{BAY}L', f'PP2B{BAY}L', f'MU1B{BAY}', f'MU2B{BAY}'}
 
 
@@ -46,7 +46,7 @@ def analytic():
 
 def des():
     rows = []
-    for p in sorted(glob.glob(os.path.join(_case(N), 'SingleBay8', 'seed_*', 'KPIs_PB.xlsx'))):
+    for p in sorted(glob.glob(os.path.join(_case(N), 'SingleBay7_wire', 'seed_*', 'KPIs_PB.xlsx'))):
         k = pd.read_excel(p, sheet_name='KPIs_per_Flow')
         g = k[(k.Traffic_Type == 'GOOSE') & k.Source.astype(str).isin(PUB)]
         g = g[g.Destination.astype(str).str.contains(f'B{BAY}') | (g.Destination == 'BBP')]

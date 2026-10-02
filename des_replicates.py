@@ -46,16 +46,12 @@ def ci95(x) -> float:
 
 
 def replicate_paths() -> dict:
-    # The original N = 8 run predates the current simulator version; the
-    # replications use the current version, with seed 42 re-run for reference.
-    # The N = 9 run 100_fix already uses the current version.
-    reps = {(8, '42_original'): DES_RUNS[(8, 'base')], (9, 42): DES_RUNS[(9, 'base')]}
-    for n, folder in ((8, os.path.join(_case(8), 'Replicas')),
-                      (9, os.path.join(_case(9), '100_fix_replicas'))):
-        for p in glob.glob(os.path.join(folder, 'seed_*', 'KPIs_PB.xlsx')):
-            seed = int(re.search(r'seed_(\d+)', p).group(1))
-            key = (n, seed)
-            reps[key] = p
+    """Seed replications (on-wire frame sizes) of the two sizes next to the boundary."""
+    reps = {}
+    for n in (7, 8):
+        reps[(n, 42)] = os.path.join(_case(n), 'Results_wire', 'KPIs_PB.xlsx')
+        for p in glob.glob(os.path.join(_case(n), 'Replicas_wire', 'seed_*', 'KPIs_PB.xlsx')):
+            reps[(n, int(re.search(r'seed_(\d+)', p).group(1)))] = p
     return reps
 
 
@@ -84,7 +80,7 @@ if __name__ == '__main__':
     print(rr.drop(columns='Source').round(3).to_string(index=False))
 
     summ = []
-    for n, d in rr[rr.Seed.astype(str) != '42_original'].groupby('N_Bays'):
+    for n, d in rr.groupby('N_Bays'):
         summ.append({'N_Bays': n, 'Replications': len(d),
                      **{f'{c}_mean': d[c].mean() for c in ('SV_mean_us', 'SV_PLR_pct', 'GOOSE_mean_us')},
                      **{f'{c}_ci95': ci95(d[c]) for c in ('SV_mean_us', 'SV_PLR_pct', 'GOOSE_mean_us')},

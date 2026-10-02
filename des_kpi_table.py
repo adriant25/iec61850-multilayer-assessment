@@ -13,12 +13,14 @@ import pandas as pd
 
 from extract_des_reference import DES_RUNS
 
-COLUMNS = [((1, 'base'), '1 Bay'), ((5, 'base'), '5 Bays'), ((9, 'base'), '9 Bays'),
+COLUMNS = [((1, 'base'), '1 Bay'), ((7, 'base'), '7 Bays'), ((8, 'base'), '8 Bays'),
            ((9, 'upgraded'), '9 Bays (1 Gbps)'), ((10, 'base'), '10 Bays'),
            ((10, 'upgraded'), '10 Bays (1 Gbps)')]
 
 
 def fmt(x: float) -> str:
+    if x is None:
+        return 'TBD'      # DES run not yet available
     if x == 0:
         return '0'
     if abs(x) >= 1e4:
@@ -56,7 +58,7 @@ ROWS = [('SV', 'avg_min', r'Flow avg.\ delay, min ($\mu$s)'),
         ('GOOSE', 'plr_max', r'PLR, worst flow (\%)')]
 
 if __name__ == '__main__':
-    data = {key: stats(DES_RUNS[key]) for key, _ in COLUMNS}
+    data = {key: (stats(DES_RUNS[key]) if os.path.exists(DES_RUNS[key]) else {}) for key, _ in COLUMNS}
     lines = [r'\begin{table*}[!t]', r'\centering',
              r'\caption{DES KPIs of SV and GOOSE traffic (all flows, 7~s run) for representative configurations; '
              r'the 1~Gbps columns correspond to the trunk + BBP link upgrade.}',
@@ -70,7 +72,7 @@ if __name__ == '__main__':
             lines.append(r'\midrule')
         first = cls if prev != cls else ''
         prev = cls
-        vals = ' & '.join(fmt(data[c][(cls, key)]) for c, _ in COLUMNS)
+        vals = ' & '.join(fmt(data[c].get((cls, key))) for c, _ in COLUMNS)
         lines.append(f'{first} & {label} & {vals} \\\\')
     lines += [r'\bottomrule', r'\end{tabular}}', r'\end{table*}']
     os.makedirs(os.path.join('results', 'paper'), exist_ok=True)

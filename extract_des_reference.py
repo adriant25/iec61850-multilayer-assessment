@@ -30,17 +30,23 @@ def _case(n: int) -> str:
     return os.path.join(SIM, f"CASO{n}BAHIA{'' if n == 1 else 'S'}")
 
 
-# (N, scenario) -> KPI workbook. N=1 and N=9 point to re-runs with the current
-# simulator version (N=9 with the corrected VLAN/burst input tables).
+# (N, scenario) -> KPI workbook. All runs use frame sizes on the wire (frame +
+# 20 B preamble/SFD and inter-frame gap, see make_des_run_wire.py) and the
+# current simulator version; N=9 uses the corrected VLAN/burst input tables.
+# The 1 Gbps runs (trunk + BBP link) are included once they exist.
 DES_RUNS = {
+    **{(n, 'base'): os.path.join(_case(n), 'Results_wire', 'KPIs_PB.xlsx') for n in range(1, 11)},
+    (9, 'upgraded'):  os.path.join(_case(9), '1000_wire', 'KPIs_PB.xlsx'),
+    (10, 'upgraded'): os.path.join(_case(10), 'Results1000_wire', 'KPIs_PB.xlsx'),
+}
+
+# Runs of the first version of the study (frame sizes without the 20 B
+# physical overhead), kept for traceability only.
+DES_RUNS_FRAME_ONLY = {
     **{(n, 'base'): os.path.join(_case(n), 'Results', 'KPIs_PB.xlsx') for n in range(2, 9)},
     (1, 'base'):      os.path.join(_case(1), 'Results_rerun', 'KPIs_PB.xlsx'),
     (9, 'base'):      os.path.join(_case(9), '100_fix', 'Results', 'KPIs_PB.xlsx'),
-    # Falls back to the original '1000' run until the corrected re-run exists
-    # (the input-table errors of N=9 affect GOOSE statistics, not SV).
-    (9, 'upgraded'):  next(p for p in (
-        os.path.join(_case(9), '1000_fix', 'Results', 'KPIs_PB.xlsx'),
-        os.path.join(_case(9), '1000', 'Results', 'KPIs_PB.xlsx')) if os.path.exists(p)),
+    (9, 'upgraded'):  os.path.join(_case(9), '1000_fix', 'Results', 'KPIs_PB.xlsx'),
     (10, 'base'):     os.path.join(_case(10), 'Results100', 'KPIs_PB.xlsx'),
     (10, 'upgraded'): os.path.join(_case(10), 'Results1000', 'KPIs_PB.xlsx'),
 }
@@ -75,11 +81,10 @@ def summarize(path: str) -> dict:
 # two configurations next to the stability boundary; the reference value is the
 # mean over replications (see des_replicates.py for the confidence intervals).
 DES_REPLICATES = {
-    (8, 'base'): [os.path.join(_case(8), 'Replicas', f'seed_{k}', 'KPIs_PB.xlsx')
-                  for k in (1, 2, 3, 4, 5, 42)],
-    (9, 'base'): [DES_RUNS[(9, 'base')]] +
-                 [os.path.join(_case(9), '100_fix_replicas', f'seed_{k}', 'KPIs_PB.xlsx')
-                  for k in (1, 2, 3, 4, 5)],
+    (n, 'base'): [os.path.join(_case(n), 'Results_wire', 'KPIs_PB.xlsx')] +
+                 [os.path.join(_case(n), 'Replicas_wire', f'seed_{k}', 'KPIs_PB.xlsx')
+                  for k in (1, 2, 3, 4, 5)]
+    for n in (7, 8)
 }
 
 

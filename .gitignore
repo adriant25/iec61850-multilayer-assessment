@@ -20,3 +20,7 @@ venv/
 .idea/
 results_baseline_pre_e2e/
 *.log
+
+# external tools (panco clone, lp_solve binary) and panco LP scratch files
+tools/
+results/panco_lp/

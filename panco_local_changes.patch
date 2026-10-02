@@ -1,0 +1,32 @@
+diff --git a/panco/fifo/admTFA.py b/panco/fifo/admTFA.py
+index 5f46eb8..67d0cce 100644
+--- a/panco/fifo/admTFA.py
++++ b/panco/fifo/admTFA.py
+@@ -292,7 +292,7 @@ class AdmTfa:
+         self.tfa_shaping_constraints(file)
+         self.regulator_constraints(file)
+         file.close()
+-        s = sp.run(["wsl", "lp_solve", "-S2", self.filename], stdout=sp.PIPE, encoding='utf-8').stdout
++        s = sp.run(LPSOLVEPATH + ["-S2", self.filename], stdout=sp.PIPE, encoding='utf-8').stdout
+         tab_values = s.split('\n')[4:-1]
+         values = [[token for token in line.split(' ') if not token == ""] for line in tab_values]
+         if not values:
+diff --git a/panco/lpSolvePath.py b/panco/lpSolvePath.py
+index ec3e91b..29ff12a 100644
+--- a/panco/lpSolvePath.py
++++ b/panco/lpSolvePath.py
+@@ -11,10 +11,14 @@ __copyright__ = "Copyright (C) 2022, Huawei Technologies France"
+ __license__ = "BSD-3"
+ 
+ 
++import os
+ import platform
+ import shutil
+ 
+ def get_lpsolve_path():
++    # local change: native Windows lp_solve.exe given by the environment variable PANCO_LPSOLVE
++    if os.environ.get("PANCO_LPSOLVE"):
++        return [os.environ["PANCO_LPSOLVE"], "-s5"]
+     if platform.system() == "Linux":
+         if shutil.which("lp_solve"):
+             return ["lp_solve", "-s5"]

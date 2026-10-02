@@ -24,3 +24,7 @@ results_baseline_pre_e2e/
 # external tools (panco clone, lp_solve binary) and panco LP scratch files
 tools/
 results/panco_lp/
+
+# local settings and manuscript drafts (not part of the code)
+.claude/
+*.pdf

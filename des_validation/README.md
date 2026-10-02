@@ -16,7 +16,7 @@ processing, 149-byte SV frames (11.92 µs service time), 4 MB port buffers
 ## How to run
 
 ```bash
-# optional, if the simulator is not in the default location
+# default: a clone of iec61850-network-simulator (tag v1.0-paper) next to this repository
 export DES_SIMULATOR_DIR="/path/to/Simulador"
 python validate_des.py          # cases A, B, C, D, E
 python validate_extra.py F      # distributions

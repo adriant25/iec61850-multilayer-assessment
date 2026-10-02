@@ -36,9 +36,13 @@ import time
 import numpy as np
 import pandas as pd
 
+# Simulator code (https://github.com/adriant25/iec61850-network-simulator, tag
+# v1.0-paper): DES_SIMULATOR_DIR, or a clone next to this repository.
 SIM_DIR = os.environ.get('DES_SIMULATOR_DIR') or os.path.join(
-    os.path.expanduser('~'), 'OneDrive - Universidad de los andes', 'Uniandes', '2025-1',
-    'Simulación', 'Simulador')
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    'iec61850-network-simulator')
+if not os.path.isdir(SIM_DIR):
+    sys.exit(f'Simulator not found in {SIM_DIR}; set DES_SIMULATOR_DIR')
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
 os.makedirs(OUT, exist_ok=True)
 

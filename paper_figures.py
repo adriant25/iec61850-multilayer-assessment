@@ -175,11 +175,12 @@ plt.close(fig)
 from analysis import fluid_overload  # noqa: E402
 from config import PORT_BUFFER_BYTES  # noqa: E402
 
-SIM = r"C:\Users\adria\OneDrive - Universidad de los andes\Uniandes\2025-1\Simulación"
+from extract_des_reference import SIM  # noqa: E402
 # Per-packet trace of the SV frames received by the BBP in the 8-bay base run
-# (on-wire frame sizes, seed 42), written by the run copy of the simulator:
-# columns source, flow_id, t_gen, t_arrival (s).
-TRACE_N8 = os.path.join(SIM, r'CASO8BAHIAS\Trace_wire\trace_BBP_SV.csv')
+# (on-wire frame sizes, seed 42), written by the run copy of the simulator
+# (main_with_trace.py); columns source, flow_id, t_gen, t_arrival (s). Only the
+# flow of the figure is shipped.
+TRACE_N8 = os.path.join(SIM, 'CASO8BAHIAS', 'Trace_wire', 'trace_BBP_SV_MU1B2.csv')
 TRACE_SRC = 'MU1B2'
 T_EVENT = 3.0
 fig, ax = plt.subplots(figsize=(3.5, 2.3))

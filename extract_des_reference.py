@@ -23,7 +23,9 @@ import os
 import re
 import pandas as pd
 
-SIM = r"C:\Users\adria\OneDrive - Universidad de los andes\Uniandes\2025-1\Simulación"
+# Folder with the DES runs (one CASO<N>BAHIA(S) folder per size). The runs used in
+# the paper are shipped in des_data/; DES_DATA_DIR points elsewhere if needed.
+SIM = os.environ.get('DES_DATA_DIR') or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'des_data')
 
 
 def _case(n: int) -> str:

@@ -25,7 +25,7 @@ S_US = 149 * 8 / 100.0                     # service time of one SV frame [us]
 plt.rcParams.update({'font.family': 'serif', 'font.serif': ['Times New Roman', 'Times', 'DejaVu Serif'],
                      'font.size': 8, 'legend.fontsize': 6, 'lines.markersize': 4,
                      'savefig.dpi': 300, 'savefig.bbox': 'tight'})
-fig, ax = plt.subplots(2, 4, figsize=(7.16, 4.4), gridspec_kw={'wspace': 0.6, 'hspace': 0.65})
+fig, ax = plt.subplots(2, 4, figsize=(7.16, 5.6), gridspec_kw={'wspace': 0.6, 'hspace': 1.15})
 ax = ax.ravel()
 
 # (a) single queue means
@@ -100,13 +100,14 @@ for i, (rh, c) in enumerate(((0.05, '#2a78d6'), (0.2, '#eb6834'))):
               label=rf'Model, $\rho_{{P6}}$={rh}')
     ax[7].errorbar(xs + off, x.DES_wait_us, yerr=x.DES_ci95_us, fmt='o', color=c, mfc='none',
                    capsize=2, label=rf'DES, $\rho_{{P6}}$={rh}')
-ax[7].set_xticks(xs, ['P6\nPoisson', 'P4 SV\nperiodic', 'P1\nPoisson'])
-ax[7].set(ylabel=r'Mean wait ($\mu$s)', title='(h) Mixed traffic')
+ax[7].set_xticks(xs, ['P6', 'P4 SV', 'P1'])
+ax[7].set(ylabel=r'Mean wait ($\mu$s)', xlabel='Traffic class',title='(h) Mixed traffic')
 
-locs = ['upper left'] * 5 + ['upper right', 'center right', 'upper left']
-for a, loc in zip(ax, locs):
+# legends below each panel: the panels are too small to hold them without covering data
+for a in ax:
     a.grid(True, ls='--', lw=0.35, alpha=0.5)
-    a.legend(frameon=False, loc=loc)
+    a.legend(frameon=False, loc='upper center', bbox_to_anchor=(0.5, -0.3), fontsize=5.8,
+             handlelength=1.8, markerscale=3 if a is ax[6] or a is ax[3] else 1)
 fig.savefig(os.path.join(OUT, 'fig_des_validation.png'))
 fig.savefig(os.path.join(OUT, 'fig_des_validation.pdf'))
 print('figure written')
